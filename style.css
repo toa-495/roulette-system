@@ -80,10 +80,11 @@ canvas{width:100%;height:auto;display:block}
 .person-summary-text{flex:1;min-width:0}
 .person-detail{padding:1px 13px 14px}
 .person-detail .rich-view{margin:6px 0}
-.person-title{display:inline-block}
-.revealing{animation:reveal 2.4s ease-out both}
+.person-title,.candidate-title{display:inline-block}
+.revealing{animation:reveal var(--reveal-duration,2400ms) ease-out both;animation-delay:var(--reveal-delay,0ms)}
 @keyframes reveal{from{filter:blur(13px);opacity:.23;transform:translateY(6px)}to{filter:blur(0);opacity:1;transform:none}}
-@media(prefers-reduced-motion:reduce){.revealing{animation:none}}
+@keyframes reveal-still{from{opacity:0}to{opacity:1}}
+@media(prefers-reduced-motion:reduce){.revealing{animation-name:reveal-still;animation-timing-function:steps(1,end)}}
 .rich-view{overflow-wrap:anywhere;line-height:1.65}
 .rich-view blockquote,.editor blockquote{border-left:3px solid #c7cfb2;padding-left:12px;margin-left:0}
 .rich-view ul,.rich-view ol,.editor ul,.editor ol{padding-left:24px}

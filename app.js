@@ -23,8 +23,11 @@ let homeTicket = 0;
 let adminTicket = 0;
 let stoppedWheel;
 let spinTimer;
+let revealTimer;
 let lastSlot = '';
-let revealSeen = new Set();
+const REVEAL_MS = 2400;
+const revealStarts = new Map();
+let roomRevealing = new Map();
 let expanded = new Set();
 let syncRunning = false;
 
@@ -49,6 +52,8 @@ function clearAuth(message) {
   adminTicket++;
   setToken('');
   clearImages();
+  revealStarts.clear();
+  clearTimeout(revealTimer);
   user = home = state = admin = null;
   view = 'day';
   slotId = '';
@@ -132,6 +137,7 @@ async function refreshEverything() {
 function renderLogin(activate = false) {
   stoppedWheel?.();
   clearTimeout(spinTimer);
+  clearTimeout(revealTimer);
   $('top-actions').innerHTML = '';
   main.setAttribute('aria-busy','false');
   if (!configured) {
@@ -174,12 +180,12 @@ function render() {
   if (!user) return renderLogin();
   stoppedWheel?.();
   clearTimeout(spinTimer);
+  clearTimeout(revealTimer);
   $('top-actions').innerHTML = '<button type="button" class="secondary" data-action="account" aria-label="アカウント設定">'+e(user.name)+'</button>';
   const selected = state?.event || home?.events.find(event=>event.id===eventId);
   const shownSlot = view==='day' && slotId ? state?.slots.find(slot=>slot.id===slotId) : null;
   if (shownSlot?.id !== lastSlot) {
     expanded = new Set();
-    revealSeen = new Set();
     lastSlot = shownSlot?.id || '';
   }
   const chooser = home?.events.length ? '<label class="hero-select fields"><span>イベント</span><select id="event-select">'+home.events.map(event=>
@@ -246,29 +252,50 @@ function proposalContent(proposal,slot,includeTitle = true) {
 function candidatesFor(slot) {
   return slot.people.filter(item=>item.proposal).map(item=>({userId:item.userId,name:item.name,title:item.proposal.title}));
 }
+function prepareReveals(slot) {
+  const at = performance.now();
+  roomRevealing = new Map();
+  for (const item of slot.people) {
+    if (!item.proposal) continue;
+    const key = JSON.stringify([eventId,slot.id,item.userId,item.openedAt]);
+    if (!revealStarts.has(key)) {
+      revealStarts.set(key,at);
+      expanded.add(item.userId);
+    }
+    const elapsed = Math.max(0,at-revealStarts.get(key));
+    if (elapsed < REVEAL_MS) roomRevealing.set(item.userId,elapsed);
+  }
+  if (roomRevealing.size) {
+    const remaining = Math.min(...Array.from(roomRevealing.values(),elapsed=>REVEAL_MS-elapsed));
+    revealTimer = setTimeout(render,Math.ceil(remaining)+20);
+  }
+}
+function revealAttrs(base,userId) {
+  const elapsed = roomRevealing.get(userId);
+  return 'class="'+base+(elapsed===undefined?'':' revealing')+'"'+
+    (elapsed===undefined?'':' style="--reveal-duration:'+REVEAL_MS+'ms;--reveal-delay:-'+elapsed+'ms"');
+}
 function renderRoom(slot) {
+  prepareReveals(slot);
   const spinning = activeSpin(slot);
   const revealed = candidatesFor(slot);
-  const ready = slot.people.length>0 && revealed.length===slot.people.length;
+  const ready = slot.people.length>0 && revealed.length===slot.people.length && !roomRevealing.size;
   const candidates = spinning ? slot.spin.candidates : revealed;
-  const hint = !slot.people.length ? '登録された予定がまだありません。' : !ready ? '全員の予定を開示すると回せます。' : spinning?'ルーレットが回っています…':'';
+  const hint = !slot.people.length ? '登録された予定がまだありません。' : roomRevealing.size ? '予定を開示しています…' : !ready ? '全員の予定を開示すると回せます。' : spinning?'ルーレットが回っています…':'';
   const win = !spinning && slot.winner;
   const personRows = slot.people.map(item=>{
     const face = '<span class="avatar" aria-hidden="true">'+e(initials(item.name))+'</span>';
     if (!item.proposal) return '<div class="person"><button class="person-button" type="button" data-action="reveal" data-key="'+e(item.userId)+'">'+face+
       '<span class="person-summary-text"><strong>'+e(item.name)+'</strong><br><small>タップして予定を開示</small></span>'+icon('lock',17)+'</button></div>';
-    const justOpened = !revealSeen.has(item.userId) && (now()-item.openedAt<12000);
-    revealSeen.add(item.userId);
-    if (justOpened) expanded.add(item.userId);
     return '<details class="person" data-open-person="'+e(item.userId)+'" '+(expanded.has(item.userId)?'open':'')+'><summary>'+face+
-      '<span class="person-summary-text"><strong>'+e(item.name)+'</strong><br><small class="person-title '+(justOpened?'revealing':'')+'">'+e(item.proposal.title)+'</small></span></summary>'+
-      '<div class="person-detail '+(justOpened?'revealing':'')+'">'+proposalContent(item.proposal,slot.id,false)+'</div></details>';
+      '<span class="person-summary-text"><strong>'+e(item.name)+'</strong><br><small '+revealAttrs('person-title',item.userId)+'>'+e(item.proposal.title)+'</small></span></summary>'+
+      '<div '+revealAttrs('person-detail',item.userId)+'>'+proposalContent(item.proposal,slot.id,false)+'</div></details>';
   }).join('');
   return '<div class="spread"><button type="button" class="secondary" data-action="back">'+icon('back',17)+'時間枠一覧</button><span id="sync-label" class="sync"></span></div>'+
     '<div class="slot-head"><h1>'+e(slot.title || hour(slot.start)+'〜'+hour(slot.end))+'</h1><p class="muted">'+e(state.event.title)+(slot.title?'　'+e(hour(slot.start)+'〜'+hour(slot.end)):'')+'</p></div>'+
     '<div class="room-grid"><div>'+
     (win?'<section class="panel win-panel"><span class="winner-tag">'+icon('spark',14)+'採用された予定</span><p class="muted">'+e(win.name)+'</p>'+
-      proposalContent(win,slot.id)+'</section>':(!spinning&&slot.winnerUnavailable?'<section class="panel win-panel"><p>前回の当選者は現在の参加者に含まれていません。必要に応じて再抽選してください。</p></section>':''))+
+      '<div '+revealAttrs('winner-content',win.userId)+'>'+proposalContent(win,slot.id)+'</div></section>':(!spinning&&slot.winnerUnavailable?'<section class="panel win-panel"><p>前回の当選者は現在の参加者に含まれていません。必要に応じて再抽選してください。</p></section>':''))+
     '<section class="panel"><div class="spread"><h2>みんなの予定</h2><span class="chip">'+revealed.length+' / '+slot.people.length+' 開示</span></div>'+
     (personRows?'<div class="people">'+personRows+'</div>':'<p class="muted">登録済みの参加者がここに表示されます。</p>')+'</section></div>'+
     '<section class="panel draw-panel"><div class="spread"><h2>ルーレット</h2><button class="icon-btn" id="sound" data-action="sound" type="button" aria-pressed="'+soundOn()+'" aria-label="ルーレット音">'+icon(soundOn()?'speaker':'mute')+'</button></div>'+
@@ -277,16 +304,19 @@ function renderRoom(slot) {
     '<div class="draw-actions"><button class="primary" id="spin" type="button" data-action="spin" '+(!ready || spinning || pending?'disabled':'')+'>'+
     icon('bolt',17)+(spinning?'抽選中':slot.spin?'もう一度回す':'ルーレットを回す')+'</button>'+
     (hint?'<p class="muted">'+e(hint)+'</p>':'')+
-    (slot.spin?'<button class="quiet" type="button" data-action="history" '+(spinning?'disabled':'')+'>抽選履歴</button>':'')+'</div>'+
+    (slot.spin?'<button class="quiet" type="button" data-action="history" '+(spinning || roomRevealing.size?'disabled':'')+'>抽選履歴</button>':'')+'</div>'+
     (candidates.length?'<ul class="candidates" aria-label="抽選候補">'+candidates.map((item,i)=>
-      '<li><span class="color-dot" style="--swatch:'+colorAt(i)+'"></span><span><strong>'+e(item.name)+'</strong> · '+e(item.title)+'</span></li>').join('')+'</ul>':'')+
+      '<li><span class="color-dot" style="--swatch:'+colorAt(i)+'"></span><span><strong>'+e(item.name)+'</strong> · <span '+revealAttrs('candidate-title',item.userId)+'>'+e(item.title)+'</span></span></li>').join('')+'</ul>':'')+
     '</section></div>';
 }
 function wireRoom(slot) {
   const candidates = candidatesFor(slot);
   const spinning = activeSpin(slot);
   const unchanged = slot.spin && JSON.stringify(candidates)===JSON.stringify(slot.spin.candidates);
-  stoppedWheel = wheel($('wheel'),$('pointer'),spinning?slot.spin.candidates:candidates,
+  // Canvas text cannot share the DOM blur animation. Keep its title hidden until the same reveal ends.
+  const displayCandidates = (spinning?slot.spin.candidates:candidates).map(item=>
+    roomRevealing.has(item.userId)?{...item,title:'開示中…'}:item);
+  stoppedWheel = wheel($('wheel'),$('pointer'),displayCandidates,
     spinning || unchanged ? slot.spin : null,clock,render);
   for (const details of main.querySelectorAll('details[data-open-person]')) {
     details.ontoggle = () => {
@@ -343,7 +373,7 @@ async function revealPerson(slot,item) {
   await refreshState(true);
 }
 async function runSpin(slot) {
-  if (pending || activeSpin(slot)) return;
+  if (pending || activeSpin(slot) || roomRevealing.size) return;
   if (slot.spin && !confirm('再抽選しますか？ 新しい結果が採用されます。')) return;
   initAudio();
   pending = true;
