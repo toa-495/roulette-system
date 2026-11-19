@@ -261,7 +261,7 @@ function renderRoom(slot) {
     revealSeen.add(item.userId);
     if (justOpened) expanded.add(item.userId);
     return '<details class="person" data-open-person="'+e(item.userId)+'" '+(expanded.has(item.userId)?'open':'')+'><summary>'+face+
-      '<span class="person-summary-text"><strong>'+e(item.name)+'</strong><br><small>'+e(item.proposal.title)+'</small></span></summary>'+
+      '<span class="person-summary-text"><strong>'+e(item.name)+'</strong><br><small class="person-title '+(justOpened?'revealing':'')+'">'+e(item.proposal.title)+'</small></span></summary>'+
       '<div class="person-detail '+(justOpened?'revealing':'')+'">'+proposalContent(item.proposal,slot.id,false)+'</div></details>';
   }).join('');
   return '<div class="spread"><button type="button" class="secondary" data-action="back">'+icon('back',17)+'時間枠一覧</button><span id="sync-label" class="sync"></span></div>'+
