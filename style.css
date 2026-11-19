@@ -80,7 +80,8 @@ canvas{width:100%;height:auto;display:block}
 .person-summary-text{flex:1;min-width:0}
 .person-detail{padding:1px 13px 14px}
 .person-detail .rich-view{margin:6px 0}
-.revealing{animation:reveal 1s ease-out both}
+.person-title{display:inline-block}
+.revealing{animation:reveal 2.4s ease-out both}
 @keyframes reveal{from{filter:blur(13px);opacity:.23;transform:translateY(6px)}to{filter:blur(0);opacity:1;transform:none}}
 @media(prefers-reduced-motion:reduce){.revealing{animation:none}}
 .rich-view{overflow-wrap:anywhere;line-height:1.65}
