@@ -10,7 +10,7 @@ function renderVault(){
   if(v.error){body.innerHTML='<p role="alert" class="form-error">'+e(v.error)+'</p>';return;}
   if(!v.data?.assigned){
     body.innerHTML='<div class="mission-locked">'+icon('lock',30)+'<h3>秘密のミッション</h3><p class="muted">自然にできそうな3つの指令を受け取れます。</p><button type="button" class="primary" data-action="mission-claim" '+(v.data?.canClaim?'':'disabled')+'>3つ受け取る</button>'+
-      (!v.data?.canClaim?'<p class="muted">イベントの開始後に受け取れます。</p>':'')+'</div>';
+      (!v.data?.canClaim?'<p class="muted">イベント当日の午前0時（日本時間）から受け取れます。</p>':'')+'</div>';
     return;
   }
   if(!v.visible){
