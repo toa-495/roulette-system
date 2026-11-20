@@ -1,4 +1,4 @@
-import {recordingAudio,createWheelRenderer,spinPosition} from './wheel.js?v=20261120-video4';
+import {recordingAudio,createWheelRenderer,spinPosition} from './wheel.js?v=20261120-video5';
 
 export function recordingMime(Recorder = globalThis.MediaRecorder) {
   if (!Recorder) return '';
@@ -272,5 +272,5 @@ export async function startRecording({read,onReady,onError,onStop}) {
     }
     frameId=requestAnimationFrame(draw);
     return {stop,cancel(){cancelled=true;return stop();}};
-  } catch(error) {cleanup();throw error;}
+  } catch(error) {cancelled=true;if(recorder?.state==='recording') recorder.stop();cleanup();throw error;}
 }

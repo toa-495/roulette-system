@@ -3,10 +3,10 @@
 <title>録画の動作確認</title>
 <style>[hidden]{display:none!important}body{font:16px/1.7 system-ui,sans-serif;max-width:740px;margin:32px auto;padding:0 20px;color:#24334a;background:#f6f5ef}button,a{display:inline-block;padding:12px 18px;border:1px solid #274a61;border-radius:12px;background:#274a61;color:white}video{width:100%;max-height:65vh;display:block;margin-top:20px}#status{white-space:pre-wrap}small{display:block;margin:15px 0}</style>
 <h1>録画の動作確認</h1><p>架空の3人の予定で、枠の表示と保存動画の効果音を確認します。アカウントや予定データには接続しません。</p>
-<button id="run">テスト動画を作成</button><p id="status" role="status">開始すると約20秒で結果を表示します。（録画 v4）</p><video id="clip" controls playsinline hidden></video><a id="download" hidden>テスト動画を保存</a>
+<button id="run">テスト動画を作成</button><p id="status" role="status">開始すると約20秒で結果を表示します。（録画 v5）</p><video id="clip" controls playsinline hidden></video><a id="download" hidden>テスト動画を保存</a>
 <script type="module">
-import {startRecording} from '../recording.js?v=20261120-video4';
-import {soundOn,toggleSound} from '../wheel.js?v=20261120-video4';
+import {startRecording} from '../recording.js?v=20261120-video5';
+import {soundOn,toggleSound} from '../wheel.js?v=20261120-video5';
 const button=document.getElementById('run'),status=document.getElementById('status'),clip=document.getElementById('clip');
 const sample=[['a','Aki','湖畔を散歩'],['b','Haru','カフェでひと休み'],['c','Toa','紅葉を見に行こう']];
 button.onclick=async()=>{
@@ -47,17 +47,23 @@ button.onclick=async()=>{
         try {
           const audio=new AudioContext();const decoded=await audio.decodeAudioData(await blob.arrayBuffer());const samples=decoded.getChannelData(0),rate=decoded.sampleRate;
           const offsets=[];
-          for(const expected of [1,4,7]) {
+          for(const [index,expected] of [1,4,7].entries()) {
+            const [x,y]=[[32,149],[372,149],[32,227]][index];
+            const seek=async time=>{await new Promise((resolve,reject)=>{clip.onseeked=resolve;clip.onerror=reject;clip.currentTime=time;});g.drawImage(clip,0,0,720,1280);};
+            const ink=()=>{const pixels=g.getImageData(x,y,310,24).data;let count=0;for(let i=0;i<pixels.length;i+=4) if(pixels[i]+pixels[i+1]+pixels[i+2]<480) count++;return count;};
+            await seek(.2);const before=ink();let visible=null;
+            for(let t=expected-.25;t<expected+1.2;t+=.05) {await seek(t);if(ink()<before*.4){visible=t;break;}}
+            if(visible===null) throw new Error('映像の開示開始を検出できませんでした。');
             let found=null;
-            for(let t=expected-.2;t<expected+.5;t+=.01) {
+            for(let t=visible-.4;t<visible+.4;t+=.01) {
               let energy=0;const start=Math.floor(t*rate),length=Math.floor(rate*.01);
               for(let i=0;i<length;i++) energy+=(samples[start+i] || 0)**2;
               if(Math.sqrt(energy/length)>.007) {found=t;break;}
             }
-            offsets.push(found===null?null:Math.round((found-expected)*1000));
+            offsets.push(found===null?null:Math.round((found-visible)*1000));
           }
-          await audio.close();audioResult='開示音のずれ(ms)：'+offsets.join(', ');
-          if(offsets.some(offset=>offset===null || Math.abs(offset)>200)) throw new Error(audioResult);
+          await audio.close();audioResult='音声検証 合格：映像に対する開示音のずれ(ms) '+offsets.map(offset=>offset===null?'未検出':offset).join(', ');
+          if(offsets.some(offset=>offset===null || Math.abs(offset)>150)) throw new Error(audioResult.replace('合格','要確認'));
         } catch(error) {audioResult='音声計測：'+error.message;}
         status.textContent=(checks.every(count=>count===3)?'映像検証 合格':'映像検証 要確認')+'：6場面の人数 '+checks.join(', ')+'\n'+audioResult+'\n'+clip.videoWidth+'×'+clip.videoHeight+' / '+blob.type+' / '+blob.size+' bytes';
         clip.currentTime=0;

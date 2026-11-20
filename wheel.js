@@ -35,20 +35,22 @@ export function revealSound(output = null,elapsed = 0,sources = null) {
   if (!sound || !context || context.state !== 'running') return;
   for (const [i,frequency] of [392,494,587,784,988].entries()) {
     const delay=i*.34-elapsed;
-    if(delay<0) continue;
+    const age=Math.max(0,-delay);
+    if(age>=.55) continue;
     const oscillator = context.createOscillator();
     const gain = context.createGain();
-    const at = context.currentTime + delay;
+    const at = context.currentTime + Math.max(0,delay) + (output?1/24:0);
     oscillator.type = 'sine';
     oscillator.frequency.setValueAtTime(frequency,at);
-    gain.gain.setValueAtTime(.001,at);
-    gain.gain.exponentialRampToValueAtTime(.09,at+.025);
-    gain.gain.exponentialRampToValueAtTime(.001,at+.55);
+    const level=age<.025?.001*Math.pow(90,age/.025):.09*Math.pow(.001/.09,(age-.025)/.525);
+    gain.gain.setValueAtTime(Math.max(.001,level),at);
+    if(age<.025) gain.gain.exponentialRampToValueAtTime(.09,at+.025-age);
+    gain.gain.exponentialRampToValueAtTime(.001,at+.55-age);
     oscillator.connect(gain);
     gain.connect(output || context.destination);
     sources?.add(oscillator);
     oscillator.onended=()=>{sources?.delete(oscillator);oscillator.disconnect();gain.disconnect();};
-    oscillator.start(at);oscillator.stop(at+.56);
+    oscillator.start(at);oscillator.stop(at+.56-age);
   }
 }
 export function toggleSound() {
@@ -61,7 +63,7 @@ function clickSound(finish = false,output = null,sources = null) {
   if (!sound || !context || context.state !== 'running') return;
   const oscillator = context.createOscillator();
   const gain = context.createGain();
-  const at = context.currentTime;
+  const at = context.currentTime + (output?1/24:0);
   oscillator.type = finish ? 'sine' : 'triangle';
   oscillator.frequency.setValueAtTime(finish ? 590 : 1150,at);
   oscillator.frequency.exponentialRampToValueAtTime(finish ? 780 : 640,at+0.033);
