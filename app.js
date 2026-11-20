@@ -4,7 +4,7 @@ import {editProposal,editExpense,userForm,eventForm,registrations,passwordForm} 
 import {wheel,colorAt,toggleSound,initAudio,soundOn,revealSound} from './wheel.js?v=20261120-ui2';
 import {startRecording,recordingSupported} from './recording.js?v=20261120-ui2';
 import {nameCandidates,nameSpin} from './names.js?v=20261120-finale1';
-import {missionTeaser,missionOpen,missionClaim,missionToggle,hideMission,missionRecapHtml,missionLoadRecap,missionRecapReset} from './missions.js?v=20261120-mission1';
+import {missionTeaser,missionOpen,missionClaim,missionToggle,hideMission,missionRecapHtml,missionLoadRecap,missionRecapReset} from './missions.js?v=20261121-midnight2';
 
 const main = $('main');
 const dialog = $('modal');
@@ -333,10 +333,20 @@ function renderMeeting() {
     (m.needsReroll?'<p>選ばれた人が参加者から外れています。集合場所を選び直してください。</p>':'')+
     '<ul class="summary-list meeting-members">'+names+'</ul></section>';
 }
+function meetingWheelPeople(m) {
+  // Older GAS versions expose anonymous choice IDs; map them to member display names.
+  const ordered=state.members.slice().sort((a,b)=>String(a.id).localeCompare(String(b.id)));
+  return (m.spin?.candidates || m.candidates).map(person=>{
+    const match=/^choice_(\\d+)$/.exec(String(person.userId));
+    const fallback=match?ordered[Number(match[1])]?.name:'';
+    const name=/^集合場所\\s*\\d+$/.test(person.name)?fallback || '参加者':person.name || fallback || '参加者';
+    return {...person,name,title:''};
+  });
+}
 function wireMeeting() {
   const m=state?.meeting;if(!m || !$('meeting-wheel')) return;
-  // The server supplies participant names, not meeting locations, until the draw finishes.
-  const people=(m.spin?.candidates || m.candidates).map(person=>({...person,title:''}));
+  // Only names are drawn, never the location text.
+  const people=meetingWheelPeople(m);
   stoppedWheel=wheel($('meeting-wheel'),$('meeting-pointer'),people,m.spin,clock,()=>{
     spinFinished(m.spin);
     void refreshState(true);
@@ -555,8 +565,7 @@ function recordFrame(context) {
     if(slotId || !state?.meeting) return null;
     const m=state.meeting,spinning=!!activeSpin(m);
     // Show participant names on the wheel; disclose only the winning meeting place after it stops.
-    const originals=m.spin?.candidates || m.candidates;
-    const candidates=originals.map(person=>({userId:person.userId,name:person.name || '参加者',title:''}));
+    const candidates=meetingWheelPeople(m);
     const revealedPlace=!spinning && m.place ? m.place : '';
     const people=candidates.map(person=>({userId:person.userId,name:person.name,
       proposal:revealedPlace && person.userId===m.spin?.winnerId?{title:revealedPlace,rich:'',locations:[],links:[]}:null}));
