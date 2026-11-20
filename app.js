@@ -37,6 +37,36 @@ let recordingPending = false;
 let recordingGeneration = 0;
 let recordingFocusId = '';
 let savedVideo;
+let roomPreparation;
+
+function clearRoomPreparation() {roomPreparation=null;}
+function preparedRoom(slot) {
+  const entry=roomPreparation;
+  return entry && entry.eventId===eventId && entry.slotId===slot.id && entry.viewer===user?.id
+    && entry.version===slot.contentVersion && !slot.spin ? entry.data : null;
+}
+async function prepareRoom(slot) {
+  if(!slot.open || slot.spin || typeof slot.contentVersion!=='string' || !user) {clearRoomPreparation();return;}
+  const old=roomPreparation;
+  if(old && old.eventId===eventId && old.slotId===slot.id && old.viewer===user.id && old.version===slot.contentVersion
+    && (old.data || old.promise || Date.now()-old.failedAt<15000)) return old.promise;
+  const entry={eventId,slotId:slot.id,viewer:user.id,version:slot.contentVersion};
+  roomPreparation=entry;
+  entry.promise=(async()=>{
+    try {
+      const data=await api('room.prepare',{eventId:entry.eventId,slotId:entry.slotId,...slotAccess(entry.slotId,entry.eventId)});
+      const current=state?.slots.find(item=>item.id===entry.slotId);
+      if(roomPreparation!==entry || user?.id!==entry.viewer || eventId!==entry.eventId || slotId!==entry.slotId
+        || !current?.open || current.spin || current.contentVersion!==entry.version) return;
+      if(data.eventId===entry.eventId && data.slotId===entry.slotId && data.contentVersion===entry.version && !data.lastSpinId) entry.data=data;
+      else entry.failedAt=Date.now();
+    } catch(error) {
+      entry.failedAt=Date.now();
+      if(error.code==='AUTH_REQUIRED' && roomPreparation===entry) handle(error);
+    } finally {entry.promise=null;}
+  })();
+  return entry.promise;
+}
 
 function now() { return Date.now()+clock; }
 function slotAccess(id,selectedEvent = eventId) {
@@ -70,6 +100,7 @@ function clearAuth(message) {
   clearImages();
   revealStarts.clear();
   slotGrants.clear();
+  clearRoomPreparation();
   clearTimeout(revealTimer);
   recordingGeneration++;
   recordingSession?.controller.cancel();
@@ -130,6 +161,7 @@ async function refreshState(force = false) {
     else if (error.code === 'FORBIDDEN') {
       notify(error.message,true);
       clearImages();
+      clearRoomPreparation();
       state = null;
       await refreshHome();
       render();
@@ -180,7 +212,7 @@ function renderLogin(activate = false) {
     try {
       const data = await api('ping');
       if (!data.ready) throw new Error('GASに接続しました。先に setupRoulette を実行してください。');
-      notify('GASと接続できました。');
+      notify(data.version>=4?'GASと接続できました。先読み機能も使えます。':'GASと接続できました。');
     } catch (error) { handle(error); }
     finally { button.disabled = false; }
   };
@@ -244,6 +276,8 @@ function render() {
     const nextEnd = Math.min(...state.slots.filter(activeSpin).map(slot=>slot.spin.startAt+slot.spin.duration));
     if (Number.isFinite(nextEnd)) spinTimer = setTimeout(render,Math.max(40,nextEnd-now()+25));
   }
+  if(shownSlot) void prepareRoom(shownSlot);
+  else clearRoomPreparation();
   setSync(offline);
 }
 function renderDay() {
@@ -509,8 +543,20 @@ function account() {
 async function revealPerson(slot,item) {
   await initAudio();
   recordingFocusId=item;
-  await api('reveal.open',{eventId,slotId:slot.id,userId:item,...slotAccess(slot.id)},{retry:true});
-  await refreshState(true);
+  const selectedEvent=eventId,viewer=user.id;
+  const cached=preparedRoom(slot)?.proposals.find(proposal=>proposal.userId===item);
+  ++ticket;
+  const result=await api('reveal.open',{eventId:selectedEvent,slotId:slot.id,userId:item,
+    ...(cached?{knownRevision:cached.revision}:{}),...slotAccess(slot.id,selectedEvent)},{retry:true});
+  if(eventId!==selectedEvent || user?.id!==viewer || !state) return;
+  ++ticket;
+  const current=state.slots.find(row=>row.id===slot.id);
+  const person=current?.people.find(row=>row.userId===item);
+  const proposal=result.proposal || (result.proposalRevision===cached?.revision?cached:null);
+  if(person && proposal && Number.isFinite(result.openedAt)) {
+    person.proposal=proposal;person.openedAt=result.openedAt;
+    state.stamp='';render();
+  } else await refreshState(true); // Compatibility with GAS v3 until it is updated.
 }
 async function runSpin(slot) {
   if (pending || activeSpin(slot) || roomRevealing.size) return;
@@ -519,20 +565,29 @@ async function runSpin(slot) {
   pending = true;
   $('spin').disabled = true;
   const context = eventId;
+  const prepared=!slot.spin && preparedRoom(slot)?.initialDraw;
   try {
     const result = await api('draw.spin',{eventId:context,slotId:slot.id,previousSpinId:slot.spin?.id || '',
-      candidateSignature:JSON.stringify(candidatesFor(slot)),...slotAccess(slot.id,context)},{retry:true});
+      candidateSignature:JSON.stringify(candidatesFor(slot)),...(prepared?{preparedVersion:slot.contentVersion}:{}),
+      ...slotAccess(slot.id,context)},{retry:true});
     if (eventId===context && state) {
+      ++ticket;
       clock = result.clock ?? clock;
       const current = state.slots.find(item=>item.id===slot.id);
       if (current && (!current.spin || result.number >= current.spin.number)) {
-        current.spin = result;
-        current.winner = null;
+        const {people,contentVersion,...spin}=result;
+        current.spin = spin;
+        if(people) current.people=people;
+        if(contentVersion) current.contentVersion=contentVersion;
+        const winner=current.people.find(person=>person.userId===result.winnerId && person.proposal);
+        current.winner=winner?{name:winner.name,...winner.proposal}:null;
+        clearRoomPreparation();
         state.stamp = '';
         render();
       }
     }
-  } finally { pending = false; await refreshState(true); }
+  } catch(error) {clearRoomPreparation();await refreshState(true);throw error;}
+  finally {pending=false;if(eventId===context && state) render();}
 }
 async function historyModal(slot) {
   const result = await api('draw.history',{eventId,slotId:slot.id,...slotAccess(slot.id)});
