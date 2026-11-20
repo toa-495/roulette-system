@@ -182,3 +182,7 @@ textarea{resize:vertical;min-height:80px}
 .mission-recap-person li{margin-bottom:8px;overflow-wrap:anywhere}
 .mission-done{font-weight:700;color:#285947}
 @media(max-width:560px){.mission-teaser{flex-direction:column;align-items:stretch}.mission-teaser button{width:100%}.mission-option button{width:100%}}
+
+/* First-slot editing is locked as soon as the meeting draw begins. */
+.plan-locked-note{margin-top:7px!important;line-height:1.5}
+.slot-card .chip.locked{display:inline-flex;align-items:center;gap:5px}
