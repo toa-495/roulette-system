@@ -188,9 +188,11 @@ export function createWheelRenderer(canvas,candidates,pixelRatio = window.device
       dial.textBaseline = 'middle';
       const compact = n > 16;
       dial.font = '800 '+(compact?13:21)+'px system-ui,sans-serif';
-      dial.fillText(truncate(dial,name,133),0,compact?-7:-10);
-      dial.font = '600 '+(compact?11:16)+'px system-ui,sans-serif';
-      dial.fillText(truncate(dial,title,135),0,compact?7:15);
+      dial.fillText(truncate(dial,name,133),0,title?(compact?-7:-10):0);
+      if(title) {
+        dial.font = '600 '+(compact?11:16)+'px system-ui,sans-serif';
+        dial.fillText(truncate(dial,title,135),0,compact?7:15);
+      }
     }
     dial.restore();
   }
