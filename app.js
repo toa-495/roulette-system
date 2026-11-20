@@ -2,7 +2,7 @@ import {api,configured,pollMs,passwordProof,setToken,token,uid} from './api.js';
 import {$,e,icon,yen,initials,hour,date,time,richView,safeUrl,photoButton,showPhoto,notify,modal,closeModal,bindForm,copyText,clearImages} from './ui.js';
 import {editProposal,editExpense,userForm,eventForm,registrations,passwordForm} from './forms.js?v=20261120-meeting9';
 import {wheel,colorAt,toggleSound,initAudio,soundOn,revealSound} from './wheel.js?v=20261120-meeting8';
-import {startRecording,recordingSupported} from './recording.js?v=20261120-meeting8';
+import {startRecording,recordingSupported} from './recording.js?v=20261120-meeting-video1';
 
 const main = $('main');
 const dialog = $('modal');
@@ -315,10 +315,12 @@ function renderMeeting() {
   const names=m.members.map(member=>'<li class="'+(member.arrived?'arrived':'')+'">'+e(member.name)+'　'+(m.spin?(member.arrived?'到着済み':'到着待ち'):(member.registered?'登録済み':'登録待ち'))+'</li>').join('');
   return '<section class="panel meeting-panel"><div class="spread"><h2>集合場所ルーレット</h2><span class="chip">'+m.registered+' / '+m.total+' 登録</span></div>'+
     '<p class="muted">全員の最初の予定がそろうと集合場所を決められます。ここでは集合場所だけを表示します。</p>'+
+    recordingControls('meeting')+
+    '<div class="spread"><span></span><button class="icon-btn" data-action="sound" type="button" aria-pressed="'+soundOn()+'" aria-label="集合場所ルーレット音">'+icon(soundOn()?'speaker':'mute')+'</button></div>'+
     (m.ready || m.spin?'<div class="meeting-wheel"><canvas id="meeting-wheel" width="520" height="520" aria-label="集合場所のルーレット"></canvas><svg id="meeting-pointer" class="pointer" viewBox="0 0 30 47" aria-hidden="true"><path d="M3 3h24L15 43Z" fill="#d84d40" stroke="#792c33" stroke-width="2"/></svg></div>':'')+
     (place?'<div class="first-plan-note"><strong>集合場所</strong><p>'+e(place)+'</p><p class="muted">最初の予定は、全員が到着してから開示します。</p></div>':'')+
     (spinning?'<p role="status">集合場所を抽選しています…</p>':'')+
-    '<div class="draw-actions"><button class="primary" type="button" data-action="meeting-spin" '+(!m.ready || spinning || pending?'disabled':'')+'>'+(m.spin?'集合場所を選び直す':'集合場所を決める')+'</button>'+
+    '<div class="draw-actions"><button class="primary" type="button" data-action="meeting-spin" '+(!m.ready || spinning || pending || recordingPending?'disabled':'')+'>'+(m.spin?'集合場所を選び直す':'集合場所を決める')+'</button>'+
     (done && !m.needsReroll?'<button class="'+(m.myArrived?'secondary':'primary')+'" type="button" data-action="meeting-arrive" '+(m.myArrived || pending?'disabled':'')+'>'+(m.myArrived?'到着を確認しました':'集合場所に着いた')+'</button>':'')+'</div>'+
     (m.allArrived?'<p class="first-plan-note">全員が到着しました。最初の時間枠を開き、名前をタップして予定を確認してください。</p>':'')+
     (m.needsReroll?'<p>選ばれた人が参加者から外れています。集合場所を選び直してください。</p>':'')+
@@ -329,7 +331,7 @@ function wireMeeting() {
   stoppedWheel=wheel($('meeting-wheel'),$('meeting-pointer'),m.spin?.candidates || m.candidates,m.spin,clock,()=>spinFinished(m.spin));
 }
 async function meetingAction(action) {
-  const m=state.meeting;if(!m || pending || activeSpin(m)) return;
+  const m=state.meeting;if(!m || pending || recordingPending || activeSpin(m)) return;
   if(action==='meeting.spin' && m.spin && !confirm('集合場所と最初の予定を選び直します。全員の到着確認もリセットされます。よろしいですか？')) return;
   const selected=eventId;pending=true;await initAudio();render();
   try {
@@ -467,16 +469,32 @@ function unlockSlot(slot) {
 dialog.addEventListener('close',()=>{
   for(const input of dialog.querySelectorAll('input[type="password"]')) input.value='';
 });
-function recordingControls() {
+function recordingControls(kind='room') {
   const active=!!recordingSession;
   const supported=recordingSupported();
+  const meeting=kind==='meeting',available=!meeting || state?.meeting?.ready || state?.meeting?.spin;
+  const hint=active?(meeting?'集合場所の抽選結果が出たあとに自動停止します。画面を表示したまま操作してください。':state?.slots.find(s=>s.id===slotId)?.meetingFirst?'開示が終わったら「記録を終了して保存」を押してください。':'次の抽選結果が出たあとに自動停止します。画面を表示したまま操作してください。'):
+    !supported?'このブラウザは動画の作成に対応していません。':meeting?(available?'抽選前に記録を開始すると、集合場所のルーレット・結果・効果音を動画に残せます。予定の内容は映りません。':'全員が最初の予定と集合場所を登録すると、動画を記録できます。'):'開示前に開始すると、予定の文章・ルーレット・効果音を1本の縦長動画に残せます。';
   return '<section class="panel recording-bar"><div><h2>'+(active?'<span class="record-dot"></span>動画を記録中':'思い出を動画に')+'</h2><p class="muted">'+
-    (active?(state?.slots.find(s=>s.id===slotId)?.meetingFirst?'開示が終わったら「記録を終了して保存」を押してください。':'次の抽選結果が出たあとに自動停止します。画面を表示したまま操作してください。'):supported?'開示前に開始すると、予定の文章・ルーレット・効果音を1本の縦長動画に残せます。':'このブラウザは動画の作成に対応していません。')+'</p></div>'+
-    '<button class="'+(active?'secondary':'primary')+'" type="button" data-action="'+(active?'stop-recording':'start-recording')+'" '+(!supported || recordingPending?'disabled':'')+'>'+
+    e(hint)+'</p></div>'+
+    '<button class="'+(active?'secondary':'primary')+'" type="button" data-action="'+(active?'stop-recording':meeting?'start-meeting-recording':'start-recording')+'" '+(!supported || !available || recordingPending?'disabled':'')+'>'+
     (recordingPending?'準備中…':active?'記録を終了して保存':'記録開始')+'</button></section>';
 }
 function recordFrame(context) {
-  if(!user || eventId!==context.eventId || slotId!==context.slotId || view!=='day') return null;
+  if(!user || eventId!==context.eventId || view!=='day') return null;
+  if(context.kind==='meeting') {
+    if(slotId || !state?.meeting) return null;
+    const m=state.meeting,spinning=!!activeSpin(m);
+    // Build this frame only from public meeting locations. Never include plans, owners or arrival data.
+    const candidates=(m.spin?.candidates || m.candidates).map((person,i)=>({userId:person.userId,name:'集合場所 '+(i+1),title:person.title}));
+    const people=candidates.map(person=>({userId:person.userId,name:person.name,proposal:{title:person.title,rich:'',locations:[],links:[]}}));
+    const spin=m.spin?Object.fromEntries(['id','startAt','duration','turns','angle','winnerId','number'].map(key=>[key,m.spin[key]])):null;
+    if(spin) spin.candidates=candidates;
+    return {kind:'meeting-place',eventTitle:state.event.title,slotTitle:'集合場所ルーレット',people,spin,spinning,
+      serverNow:now(),winner:spin && !spinning?people.find(person=>person.userId===spin.winnerId) || null:null,
+      revealProgress:Object.fromEntries(people.map(person=>[person.userId,1]))};
+  }
+  if(slotId!==context.slotId) return null;
   const slot=state?.slots.find(item=>item.id===context.slotId);
   if(!slot?.open) return null;
   const spinning=!!activeSpin(slot);
@@ -495,8 +513,15 @@ function recordFrame(context) {
   };
 }
 async function startRoomRecording(slot) {
-  if(recordingSession || recordingPending || !slot?.open) return;
-  const context={eventId,slotId:slot.id};
+  if(!slot?.open) return;
+  return startAppRecording({eventId,slotId:slot.id});
+}
+async function startMeetingRecording() {
+  if(!state?.meeting || (!state.meeting.ready && !state.meeting.spin)) return;
+  return startAppRecording({eventId,kind:'meeting'});
+}
+async function startAppRecording(context) {
+  if(recordingSession || recordingPending || !recordFrame(context)) return;
   const generation=++recordingGeneration;
   recordingPending=true;render();
   let made=false,stopReason='';
@@ -506,7 +531,7 @@ async function startRoomRecording(slot) {
       onReady:({blob,extension,reason})=>{
         if(generation!==recordingGeneration || !user) return;
         if(savedVideo) URL.revokeObjectURL(savedVideo.url);
-        savedVideo={blob,url:URL.createObjectURL(blob),filename:'roulette-'+new Date().toISOString().replace(/[:.]/g,'-')+'.'+extension};
+        savedVideo={blob,url:URL.createObjectURL(blob),filename:(context.kind==='meeting'?'meeting-roulette-':'roulette-')+new Date().toISOString().replace(/[:.]/g,'-')+'.'+extension};
         made=true;stopReason=reason;
       },
       onError:error=>{if(generation===recordingGeneration && user) handle(error);},
@@ -675,6 +700,7 @@ async function doAction(button) {
     case 'slot': if (slot?.open) { slotId = slot.id; initAudio(); render(); } return;
     case 'unlock-slot': if(slot && !slot.open) unlockSlot(slot); return;
     case 'start-recording': return startRoomRecording(slot);
+    case 'start-meeting-recording': return startMeetingRecording();
     case 'stop-recording': return finishRecording();
     case 'saved-video': return showSavedVideo();
     case 'share-video': return shareSavedVideo();

@@ -40,4 +40,4 @@ function route(action,p){
 }
 window.google={script:{run:{withSuccessHandler(fn){this.ok=fn;return this;},withFailureHandler(fn){this.fail=fn;return this;},rpc(request){const done=this.ok;setTimeout(()=>{try{done({ok:true,data:route(request.action,request.payload),serverTime:Date.now()});}catch(e){done({ok:false,code:e.code || 'DEMO_ERROR',message:e.message,serverTime:Date.now()});}},request.action==='reveal.open'?1800:200);}}}};
 sessionStorage.setItem('roulette.session:'+location.pathname,'fictional-demo-session');
-</script><script type="module" src="../app.js?v=20261120-meeting8"></script></html>
+</script><script type="module" src="../app.js?v=20261120-meeting-video1"></script></html>

@@ -1,4 +1,4 @@
-import {recordingAudio,createWheelRenderer,spinPosition} from './wheel.js?v=20261120-meeting8';
+import {recordingAudio,createWheelRenderer,spinPosition,colorAt} from './wheel.js?v=20261120-meeting8';
 
 export function recordingMime(Recorder = globalThis.MediaRecorder) {
   if (!Recorder) return '';
@@ -133,9 +133,50 @@ function painter(canvas) {
     }
     showLayer(layer,x,y,width,height,person.proposal?progress:1);
   }
+  function drawDisk(frame,diskY,wheelSize) {
+    const signature=JSON.stringify(frame.wheelCandidates);
+    if(signature!==wheelKey) {paintWheel=createWheelRenderer(disk,frame.wheelCandidates,1);wheelKey=signature;}
+    paintWheel(frame.turns);
+    ctx.drawImage(disk,(720-wheelSize)/2,diskY,wheelSize,wheelSize);
+    const pointerY=diskY+wheelSize*28/520;
+    ctx.fillStyle='#e47757';ctx.strokeStyle='#792c33';ctx.lineWidth=4;
+    ctx.beginPath();ctx.moveTo(343,pointerY-9);ctx.lineTo(377,pointerY-9);ctx.lineTo(360,pointerY+40);ctx.closePath();ctx.fill();ctx.stroke();
+  }
+  function meeting(frame,at) {
+    let top=112;
+    if(frame.winner) {
+      const place=frame.winner.proposal.title.replace(/\s+/g,' ');
+      ctx.font='700 28px system-ui,sans-serif';
+      const wrapped=lines(ctx,place,624),height=80+wrapped.length*35;
+      box(24,top,672,height,32,'#fbefce','#e7d5ab');
+      write('決定した集合場所',48,top+22,624,24,'#493c29',700);
+      wrapped.forEach((line,i)=>write(line,48,top+62+i*35,624,28,ink,800));
+      top+=height+20;
+    }
+    const wheelSize=Math.min(608,960-top-76);
+    box(24,top,672,wheelSize+76,32,'#e9ede3');
+    write('集合場所ルーレット',48,top+20,430,28,ink,800);
+    write(frame.spinning?'抽選中…':frame.winner?'決定！':'抽選前',544,top+25,130,21,'#334734',700);
+    drawDisk(frame,top+58,wheelSize);
+    const candidates=frame.wheelCandidates,pageSize=4,pageCount=Math.max(1,Math.ceil(candidates.length/pageSize));
+    const page=Math.floor(at/4000)%pageCount,offset=page*pageSize,shown=candidates.slice(offset,offset+pageSize);
+    const listY=top+wheelSize+96;
+    box(24,listY,672,210,30,white);
+    write('集合場所の候補'+(pageCount>1?'　'+(offset+1)+'〜'+(offset+shown.length)+' / '+candidates.length:''),48,listY+20,624,24,ink,800);
+    shown.forEach((person,i)=>{
+      const x=48+(i%2)*320,y=listY+67+Math.floor(i/2)*65;
+      ctx.beginPath();ctx.arc(x+7,y+9,6,0,Math.PI*2);ctx.fillStyle=colorAt(offset+i);ctx.fill();
+      ctx.font='600 21px system-ui,sans-serif';
+      const wrapped=lines(ctx,person.title,274);
+      wrapped.slice(0,2).forEach((line,j)=>write(line+(j===1 && wrapped.length>2?'…':''),x+23,y+j*27,274,21,ink,600));
+    });
+  }
   return (frame,at)=>{
     ctx.fillStyle=paper;ctx.fillRect(0,0,720,1280);ctx.textBaseline='top';
     write(frame.eventTitle,32,24,656,30,ink,800);write(frame.slotTitle,32,68,656,22,soft,400);
+    if(frame.kind==='meeting-place') {
+      meeting(frame,at);write('1日ルーレット',32,1234,656,20,soft,400);return;
+    }
     let top=112;
     // Match the normal room: a separate result card, everyone's cards, then the wheel.
     if(frame.winner) {
@@ -181,14 +222,7 @@ function painter(canvas) {
     box(24,wheelY,672,wheelSize+80,32,'#e9ede3');
     write('ルーレット',48,wheelY+24,390,30,ink,800);
     if(frame.spinning || frame.winner) write(frame.spinning?'抽選中…':'決定！',532,wheelY+29,140,22,'#334734',700);
-    const signature=JSON.stringify(frame.wheelCandidates);
-    if(signature!==wheelKey) {paintWheel=createWheelRenderer(disk,frame.wheelCandidates,1);wheelKey=signature;}
-    paintWheel(frame.turns);
-    const diskX=(720-wheelSize)/2,diskY=wheelY+62;
-    ctx.drawImage(disk,diskX,diskY,wheelSize,wheelSize);
-    const pointerY=diskY+wheelSize*28/520;
-    ctx.fillStyle='#e47757';ctx.strokeStyle='#792c33';ctx.lineWidth=4;
-    ctx.beginPath();ctx.moveTo(343,pointerY-9);ctx.lineTo(377,pointerY-9);ctx.lineTo(360,pointerY+40);ctx.closePath();ctx.fill();ctx.stroke();
+    drawDisk(frame,wheelY+62,wheelSize);
     write('1日ルーレット',32,1234,656,20,soft,400);
   };
 }
@@ -199,7 +233,7 @@ export async function startRecording({read,onReady,onError,onStop}) {
   if(!first) throw new Error('時間枠を開いてから記録してください。');
   const canvas=document.createElement('canvas');canvas.width=720;canvas.height=1280;
   const paint=painter(canvas);
-  const baseline=first.spin?.id || '';
+  const baseline=first.spinning?'':first.spin?.id || '';
   let audio,stream,recorder,frameId,wake,videoTrack,reason='',cancelled=false,stopping=false,cleaned=false;
   let endSpin='',endAt=0,lastPaint=-Infinity,bytes=0;
   let origin=0,began=0,timeline,lastFrame=first,started=false,rejectStart;
@@ -287,7 +321,7 @@ export async function startRecording({read,onReady,onError,onStop}) {
       if(stopping) return;
       try {
         const raw=read();
-        if(!raw) {stop('時間枠を移動したため記録を終了しました。');return;}
+        if(!raw) {stop('画面を移動したため記録を終了しました。');return;}
         if(at-lastPaint<1000/24) {frameId=requestAnimationFrame(draw);return;}
         const frame=paintFrame(raw);lastPaint=at;
         if(frame.winner && frame.spin?.id!==baseline && !frame.spinning) {
