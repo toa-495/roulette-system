@@ -1,8 +1,8 @@
 import {api,configured,pollMs,passwordProof,setToken,token,uid} from './api.js';
 import {$,e,icon,yen,initials,hour,date,time,richView,safeUrl,photoButton,showPhoto,notify,modal,closeModal,bindForm,copyText,clearImages} from './ui.js';
 import {editProposal,editExpense,userForm,eventForm,registrations,passwordForm} from './forms.js';
-import {wheel,colorAt,toggleSound,initAudio,soundOn,revealSound} from './wheel.js?v=20261120-video3';
-import {startRecording,recordingSupported} from './recording.js?v=20261120-video3';
+import {wheel,colorAt,toggleSound,initAudio,soundOn,revealSound} from './wheel.js?v=20261120-video4';
+import {startRecording,recordingSupported} from './recording.js?v=20261120-video4';
 
 const main = $('main');
 const dialog = $('modal');

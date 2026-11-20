@@ -1,4 +1,4 @@
-import {recordingAudio,createWheelRenderer,spinPosition} from './wheel.js?v=20261120-video3';
+import {recordingAudio,createWheelRenderer,spinPosition} from './wheel.js?v=20261120-video4';
 
 export function recordingMime(Recorder = globalThis.MediaRecorder) {
   if (!Recorder) return '';
@@ -214,12 +214,10 @@ export async function startRecording({read,onReady,onError,onStop}) {
     // Canvas + app audio only: no camera, microphone, password dialog or other tabs.
     audio=await recordingAudio();
     paint(recordingTimeline(first,reduceMotion)(first,0),0);
-    stream=canvas.captureStream(0);
+    // Keep an automatic frame cadence as well as requesting completed frames.
+    // Some engines advertise requestFrame() but emit only the initial frame at 0fps.
+    stream=canvas.captureStream(24);
     videoTrack=stream.getVideoTracks?.()[0];
-    if(typeof videoTrack?.requestFrame!=='function') {
-      stream.getTracks().forEach(track=>track.stop());
-      stream=canvas.captureStream(24);videoTrack=stream.getVideoTracks?.()[0];
-    }
     for(const track of audio?.stream.getAudioTracks() || []) stream.addTrack(track);
     const mimeType=recordingMime();
     recorder=new MediaRecorder(stream,{...(mimeType?{mimeType}:{}),videoBitsPerSecond:2500000});

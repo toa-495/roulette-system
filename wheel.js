@@ -19,6 +19,8 @@ export async function recordingAudio() {
   if (!context || context.state !== 'running') return null;
   const output = context.createMediaStreamDestination();
   const sources=new Set();
+  const silence=context.createConstantSource?.();
+  if(silence) {silence.offset.value=0;silence.connect(output);silence.start();}
   // A recording gets only cues produced by its own timeline, never live UI cues.
   return {
     stream:output.stream,
@@ -26,7 +28,7 @@ export async function recordingAudio() {
     reveal:elapsed=>revealSound(output,elapsed,sources),
     tick:()=>clickSound(false,output,sources),
     finish:()=>clickSound(true,output,sources),
-    close(){for(const source of sources){try{source.stop();}catch{}}sources.clear();output.disconnect();output.stream.getTracks().forEach(track=>track.stop());}
+    close(){for(const source of sources){try{source.stop();}catch{}}sources.clear();if(silence){silence.stop();silence.disconnect();}output.disconnect();output.stream.getTracks().forEach(track=>track.stop());}
   };
 }
 export function revealSound(output = null,elapsed = 0,sources = null) {
