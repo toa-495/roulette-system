@@ -1,0 +1,33 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>1日の一覧と名前ルーレットの確認</title><link rel="stylesheet" href="../style.css?v=20261120-finale1">
+<style>.demo-banner{padding:14px max(16px,calc((100% - 1080px)/2));background:#e3eddf;font-size:14px}</style>
+<div class="demo-banner">架空データの確認画面です。実際のアカウントやスプレッドシートは使いません。最後の枠を抽選すると「1日の予定」が開きます。名前ルーレットも試せます。</div>
+<header><button class="brand" id="brand"><span class="brand-wheel"></span>1日ルーレット</button><div id="top-actions"></div></header>
+<main id="main"></main><dialog id="modal"><div id="modal-body"></div></dialog><div id="notice" role="status" aria-live="polite"></div>
+<script>
+const members=[{id:'demo_a',name:'あき'},{id:'demo_b',name:'はる'},{id:'demo_c',name:'そら'}];
+const base=Date.now()-3*3600000,event={id:'finale_demo',title:'みんなでつくった1日',start:base,end:base+3*3600000,date:'2026-11-20'};
+const slots=['朝のお楽しみ','お昼のひと休み','最後の予定'].map((title,i)=>({id:'demo_slot_'+i,title,start:base+i*3600000,end:base+(i+1)*3600000}));
+const titles=[['森の散歩','湖畔のカフェ','美術館めぐり'],['手作りピザ','本屋さんで宝探し','公園でピクニック'],['夕焼けの展望台','夜景の見えるカフェ','星空さんぽ']];
+const plans=slots.flatMap((slot,i)=>members.map((member,j)=>({id:slot.id+':'+member.id,slotId:slot.id,userId:member.id,title:titles[i][j],rich:'<p>'+member.name+'が考えた、'+titles[i][j]+'の時間です。</p>',locations:['〇駅の東口'],links:[],image:'',revision:1})));
+let finalSpin=null;const oldSpins=slots.slice(0,2).map((slot,i)=>({id:'past_'+i,winnerId:members[i].id,candidates:members.map((m,j)=>({userId:m.id,name:m.name,title:titles[i][j]})),number:1,startAt:base,duration:7500,turns:8,angle:((1-(i+.5)/3)%1+1)%1}));
+const finished=()=>!!finalSpin && Date.now()>=finalSpin.startAt+finalSpin.duration;
+function state(){return {stamp:'demo_'+(finalSpin?.id || '')+'_'+finished(),event,members,meeting:null,overview:{available:finished(),finalDrawId:finalSpin?.id || '',readyAt:finalSpin?finalSpin.startAt+7500:0},summary:{total:0,balances:[],transfers:[]},expenses:[],slots:slots.map((slot,i)=>{
+ const people=members.map(m=>({userId:m.id,name:m.name,openedAt:base,proposal:plans.find(p=>p.slotId===slot.id && p.userId===m.id)})),spin=i===2?finalSpin:oldSpins[i];
+ return {...slot,open:true,openAt:slot.start,editable:true,meetingFirst:false,mine:people[2].proposal,people,registration:3,spin,winner:spin?{name:members.find(m=>m.id===spin.winnerId).name,...people.find(p=>p.userId===spin.winnerId).proposal}:null};
+})};}
+function route(action,p){
+ if(action==='home')return {user:{id:'demo_c',name:'そら',role:'member',username:'demo'},events:[event]};
+ if(action==='event.get') {const value=state();return value.stamp===p.stamp?{stamp:value.stamp,unchanged:true}:value;}
+ if(action==='ping')return {ready:true,version:6};
+ if(action==='draw.spin'){const people=state().slots[2].people;finalSpin={id:'final_'+Date.now(),winnerId:'demo_b',candidates:people.map(p=>({userId:p.userId,name:p.name,title:p.proposal.title})),number:1,startAt:Date.now()+350,duration:7500,turns:8,angle:.5};return {...finalSpin,people};}
+ if(action==='day.overview'){
+  if(!finished()){const error=new Error('まだ最後の抽選が終わっていません。');error.code='DAY_NOT_FINISHED';throw error;}
+  return {event,members,available:true,finalDrawId:finalSpin.id,slots:state().slots.map(s=>({...s,selected:s.winner})),plans:members.map(m=>({...m,proposals:slots.map(s=>({slotId:s.id,proposal:plans.find(p=>p.slotId===s.id && p.userId===m.id)}))}))};
+ }
+ if(action==='draw.history')return [];
+ throw new Error('このデモでは使わない操作です。');
+}
+window.google={script:{run:{withSuccessHandler(fn){this.ok=fn;return this;},withFailureHandler(fn){this.fail=fn;return this;},rpc(request){const done=this.ok;setTimeout(()=>{try{done({ok:true,data:route(request.action,request.payload),serverTime:Date.now()});}catch(error){done({ok:false,code:error.code || 'DEMO_ERROR',message:error.message,serverTime:Date.now()});}},150);}}}};
+sessionStorage.setItem('roulette.session:'+location.pathname,'fictional-demo-session');
+</script><script type="module" src="../app.js?v=20261120-finale1"></script></html>

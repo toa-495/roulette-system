@@ -1,8 +1,9 @@
 import {api,configured,pollMs,passwordProof,setToken,token,uid} from './api.js';
 import {$,e,icon,yen,initials,hour,date,time,richView,safeUrl,photoButton,showPhoto,notify,modal,closeModal,bindForm,copyText,clearImages} from './ui.js';
 import {editProposal,editExpense,userForm,eventForm,registrations,passwordForm} from './forms.js?v=20261120-meeting9';
-import {wheel,colorAt,toggleSound,initAudio,soundOn,revealSound} from './wheel.js?v=20261120-meeting8';
-import {startRecording,recordingSupported} from './recording.js?v=20261120-meeting-video1';
+import {wheel,colorAt,toggleSound,initAudio,soundOn,revealSound} from './wheel.js?v=20261120-finale1';
+import {startRecording,recordingSupported} from './recording.js?v=20261120-finale1';
+import {nameCandidates,nameSpin} from './names.js?v=20261120-finale1';
 
 const main = $('main');
 const dialog = $('modal');
@@ -40,6 +41,8 @@ let savedVideo;
 let roomPreparation;
 const localReveals=new Map();
 const completedSpins=new Set();
+const nameSettings=new Map();
+let overviewCache;
 function localRevealKey(slot,id) {return JSON.stringify([eventId,slot.id,slot.meetingRoundId || '',id]);}
 function visualOpenedAt(slot,person) {return localReveals.get(localRevealKey(slot,person.userId))?.openedAt || person.openedAt;}
 function savingReveals(slot) {return slot.people.some(person=>localReveals.get(localRevealKey(slot,person.userId))?.pending);}
@@ -84,12 +87,12 @@ function eventAccess(selectedEvent = eventId) {
   return Object.fromEntries(Array.from(slotGrants.values()).filter(grant=>grant.eventId===selectedEvent && grant.expiresAt>now()).map(grant=>[grant.slotId,grant.accessToken]));
 }
 function activeSpin(slot) { return slot.spin && !completedSpins.has(slot.spin.id) && now() < slot.spin.startAt+slot.spin.duration; }
-function spinFinished(spin) {if(spin){completedSpins.add(spin.id);if(completedSpins.size>100)completedSpins.delete(completedSpins.values().next().value);}render();}
+function spinFinished(spin) {if(spin){completedSpins.add(spin.id);if(completedSpins.size>100)completedSpins.delete(completedSpins.values().next().value);}render();if(spin && state?.slots.at(-1)?.spin?.id===spin.id)void refreshState(true);}
 function navButtons() {
-  const items = [['day','当日','calendar'],['plans','予定登録','pen'],['money','お金','wallet']];
+  const items = [['day','当日','calendar'],['plans','予定登録','pen'],['money','お金','wallet'],['names','名前ルーレット','users'],['overview','1日の予定','spark']];
   if (user.role === 'admin') items.push(['admin','管理','settings']);
   return '<nav class="nav" aria-label="メインメニュー">'+items.map(([key,name,symbol]) =>
-    '<button type="button" data-action="nav" data-key="'+key+'" '+(view===key?'aria-current="page"':'')+'>'+icon(symbol,18)+name+'</button>').join('')+'</nav>';
+    '<button type="button" data-action="nav" data-key="'+key+'" '+(key==='overview' && !state?.overview?.available?'disabled title="最後の時間枠の抽選後に解放"':'')+' '+(view===key?'aria-current="page"':'')+'>'+icon(symbol,18)+name+'</button>').join('')+'</nav>';
 }
 function updateUrl() {
   if (hosted) return;
@@ -107,6 +110,7 @@ function clearAuth(message) {
   revealStarts.clear();
   slotGrants.clear();
   localReveals.clear();completedSpins.clear();
+  nameSettings.clear();overviewCache=null;
   clearRoomPreparation();
   clearTimeout(revealTimer);
   recordingGeneration++;
@@ -224,7 +228,7 @@ function renderLogin(activate = false) {
     try {
       const data = await api('ping');
       if (!data.ready) throw new Error('GASに接続しました。先に setupRoulette を実行してください。');
-      notify(data.version>=5?'GASと接続できました。集合場所・到着確認の機能も使えます。':data.version>=4?'GASと接続できました。先読み機能も使えます。':'GASと接続できました。');
+      notify(data.version>=6?'GASと接続できました。1日の予定一覧も使えます。':data.version>=5?'GASと接続できました。集合場所・到着確認の機能も使えます。':data.version>=4?'GASと接続できました。先読み機能も使えます。':'GASと接続できました。');
     } catch (error) { handle(error); }
     finally { button.disabled = false; }
   };
@@ -280,6 +284,8 @@ function render() {
   else if (!state) page.innerHTML = '<div class="panel loading">イベントを読み込んでいます…</div>';
   else if (view==='plans') page.innerHTML = renderPlans();
   else if (view==='money') page.innerHTML = renderMoney();
+  else if (view==='overview') {page.innerHTML=renderOverview();void loadOverview();}
+  else if (view==='names') {page.innerHTML=renderNames();wireNames();}
   else if (shownSlot) {
     page.innerHTML = renderRoom(shownSlot);
     wireRoom(shownSlot);
@@ -294,7 +300,7 @@ function render() {
   setSync(offline);
 }
 function renderDay() {
-  return renderMeeting()+'<div class="section-head"><h2>当日の時間枠</h2><div class="spread"><span class="sync" id="sync-label"></span><button type="button" class="secondary" data-action="share">イベントURLをコピー</button></div></div>'+
+  return (state.overview?.available?'<section class="panel overview-invite"><div><h2>今日の1日を並べて見よう</h2><p>採用された予定と、みんなが考えた1日の予定を一覧で見られます。</p></div><button class="primary" type="button" data-action="nav" data-key="overview">1日の予定を見る</button></section>':'')+renderMeeting()+'<div class="section-head"><h2>当日の時間枠</h2><div class="spread"><span class="sync" id="sync-label"></span><button type="button" class="secondary" data-action="share">イベントURLをコピー</button></div></div>'+
     '<div class="stack">'+state.slots.map(slot=>{
       const spinning = activeSpin(slot);
       const result = !spinning && slot.winner;
@@ -339,6 +345,68 @@ async function meetingAction(action) {
     if(selected===eventId && user) {++ticket;clock=next.clock ?? clock;state=next;if(slotId && !state.slots.find(s=>s.id===slotId)?.open)slotId='';}
   } finally {pending=false;if(user)render();}
 }
+function renderOverview() {
+  if(!state.overview?.available) return '<section class="panel empty"><h1>1日の予定</h1><p>最後の時間枠のルーレットが終わると、今日の予定と全員の案を一覧で見られます。</p>'+(!state.overview?'<p>この機能を使うにはGASの更新が必要です。</p>':'')+'</section>';
+  const entry=overviewCache,key=eventId+':'+state.stamp;
+  if(entry?.key!==key || !entry.data) return '<section class="panel"><h1>1日の予定</h1><p role="status">'+e(entry?.key===key && entry.error?entry.error:'みんなの1日の予定を読み込んでいます…')+'</p>'+(entry?.error?'<button class="secondary" data-action="overview-retry">再読み込み</button>':'')+'</section>';
+  const data=entry.data;
+  function cell(proposal,slotId,selected=false) {
+    if(!proposal) return '<p class="muted">'+(selected?'未抽選・抽選中・対象外':'未登録')+'</p>';
+    return '<strong>'+e(proposal.title)+'</strong>'+(selected?'<p class="muted">'+e(proposal.name)+'</p>':'')+'<div class="rich-view overview-excerpt">'+richView(proposal.rich)+'</div><details><summary>詳細を見る</summary>'+proposalContent(proposal,slotId,false)+'</details>';
+  }
+  return '<div class="section-head"><h1>今日の1日の予定</h1><span class="chip">全員の案を解放しました</span></div><p class="muted">時間帯ごとに、採用された予定と全員の案を並べています。横にスクロールでき、詳細も開けます。編集や再抽選は最新の内容を反映します。</p><section class="panel overview-scroll" tabindex="0" aria-label="1日の予定の比較表"><table class="overview-table"><thead><tr><th scope="col">時間</th><th scope="col" class="adopted">採用された1日</th>'+data.members.map(member=>'<th scope="col">'+e(member.name)+'の1日</th>').join('')+'</tr></thead><tbody>'+data.slots.map(slot=>'<tr><th scope="row">'+e(hour(slot.start)+'〜'+hour(slot.end))+'<br>'+e(slot.title || '')+'</th><td class="adopted">'+cell(slot.selected,slot.id,true)+'</td>'+data.plans.map(member=>'<td>'+cell(member.proposals.find(p=>p.slotId===slot.id)?.proposal,slot.id)+'</td>').join('')+'</tr>').join('')+'</tbody></table></section>';
+}
+async function loadOverview() {
+  if(!state?.overview?.available) {overviewCache=null;return;}
+  const key=eventId+':'+state.stamp;
+  if(overviewCache?.key===key) return;
+  const entry={key,viewer:user.id,eventId};overviewCache=entry;
+  try {
+    const data=await api('day.overview',{eventId});
+    if(overviewCache===entry && user?.id===entry.viewer && eventId===entry.eventId) entry.data=data;
+  } catch(error) {entry.error=error.message;if(error.code==='AUTH_REQUIRED')handle(error);}
+  finally {if(overviewCache===entry && view==='overview' && user)render();}
+}
+function namesConfig() {
+  let config=nameSettings.get(eventId);
+  if(!config) {config={equal:true,people:new Map(),spin:null};nameSettings.set(eventId,config);}
+  const ids=new Set(state.members.map(member=>member.id));
+  for(const id of config.people.keys()) if(!ids.has(id))config.people.delete(id);
+  for(const member of state.members) if(!config.people.has(member.id))config.people.set(member.id,{selected:true,weight:'1'});
+  // An old result stays labeled as the last result; current candidates are rebuilt from current members.
+  return config;
+}
+function namesData(config) {
+  try {const candidates=nameCandidates(state.members,config);return {candidates,total:candidates.reduce((n,p)=>n+p.weight,0)};}
+  catch(error) {return {candidates:[],total:0,error:error.message};}
+}
+function renderNames() {
+  const config=namesConfig(),busy=!!activeSpin(config),{candidates,total,error}=namesData(config);
+  const winner=!busy && config.spin?.candidates.find(p=>p.userId===config.spin.winnerId);
+  return '<div class="section-head"><h1>名前ルーレット</h1><button class="icon-btn" data-action="sound" type="button" aria-pressed="'+soundOn()+'" aria-label="名前ルーレット音">'+icon(soundOn()?'speaker':'mute')+'</button></div><p class="muted">このイベントの参加者から選びます。結果はこの端末だけに表示し、予定の抽選には影響しません。</p><div class="two-col"><section class="panel"><h2>参加者と当たりやすさ</h2><label class="name-equal"><input id="name-equal" type="checkbox" '+(config.equal?'checked':'')+' '+(busy?'disabled':'')+'> 等倍（選んだ全員を同じ確率にする）</label><p class="muted">倍率は比率です。例：1倍と2倍なら、2倍の人が2倍当たりやすくなります。0倍は当たりません。</p><div class="name-choices">'+state.members.map(member=>{
+    const choice=config.people.get(member.id),candidate=candidates.find(p=>p.userId===member.id);
+    return '<div class="name-choice"><label><input type="checkbox" data-name-select="'+e(member.id)+'" '+(choice.selected?'checked':'')+' '+(busy?'disabled':'')+'> '+e(member.name)+'</label><label class="name-weight"><input type="number" data-name-weight="'+e(member.id)+'" aria-label="'+e(member.name)+'の倍率" min="0" max="1000" step="0.001" value="'+e(config.equal?'1':choice.weight)+'" '+(busy || config.equal || !choice.selected?'disabled':'')+'> 倍</label><output data-name-odds="'+e(member.id)+'">'+(total && candidate?(candidate.weight/total*100).toFixed(1):'0.0')+'%</output></div>';
+  }).join('')+'</div><p class="form-error" id="name-error" role="alert">'+e(error || '')+'</p></section><section class="panel draw-panel"><h2>誰になるかな？</h2><div class="wheel-wrap"><canvas id="name-wheel" width="520" height="520" aria-label="名前ルーレットの円盤"></canvas><svg id="name-pointer" class="pointer" viewBox="0 0 30 47" aria-hidden="true"><path d="M3 3h24L15 43Z" fill="#d84d40" stroke="#792c33" stroke-width="2"/></svg></div><div id="name-result" role="status">'+(busy?'<p>ルーレットが回っています…</p>':winner?'<div class="first-plan-note"><span>今回選ばれたのは</span><h2>'+e(winner.name)+'</h2></div>':'')+'</div><button class="primary" data-action="name-spin" id="name-spin" '+(busy || !total || error?'disabled':'')+'>'+(busy?'抽選中':'ルーレットを回す')+'</button></section></div>';
+}
+function wireNames() {
+  const config=namesConfig(),data=namesData(config),busy=!!activeSpin(config);
+  if($('name-wheel'))stoppedWheel=wheel($('name-wheel'),$('name-pointer'),config.spin?.candidates || data.candidates,config.spin,0,()=>spinFinished(config.spin));
+  if($('name-equal'))$('name-equal').onchange=event=>{config.equal=event.target.checked;config.spin=null;render();};
+  for(const node of main.querySelectorAll('[data-name-select]'))node.onchange=event=>{config.people.get(node.dataset.nameSelect).selected=event.target.checked;config.spin=null;render();};
+  for(const node of main.querySelectorAll('[data-name-weight]'))node.oninput=()=>{
+    if(busy) return;
+    config.people.get(node.dataset.nameWeight).weight=node.value;config.spin=null;
+    const current=namesData(config);
+    for(const output of main.querySelectorAll('[data-name-odds]')) {const p=current.candidates.find(p=>p.userId===output.dataset.nameOdds);output.textContent=(current.total && p?(p.weight/current.total*100).toFixed(1):'0.0')+'%';}
+    $('name-error').textContent=current.error || '';$('name-result').innerHTML='';$('name-spin').disabled=!current.total || !!current.error;
+    stoppedWheel?.();stoppedWheel=wheel($('name-wheel'),$('name-pointer'),current.candidates,null,0,()=>{});
+  };
+}
+async function runNameSpin() {
+  const config=namesConfig();if(activeSpin(config))return;
+  await initAudio();config.spin=nameSpin(nameCandidates(state.members,config));render();
+}
+
 function renderPlans() {
   return '<div class="section-head"><h2>自分の予定</h2></div><div class="stack">'+state.slots.map(slot=>
     '<article class="panel slot-card"><div class="slot-time">'+e(hour(slot.start)+'〜'+hour(slot.end))+'</div><div><h3>'+
@@ -689,6 +757,7 @@ async function doAction(button) {
   switch (action) {
     case 'nav':
       if (key==='admin' && user.role!=='admin') return;
+      if(key==='overview' && !state?.overview?.available)return;
       view = key;
       slotId = '';
       render();
@@ -696,6 +765,8 @@ async function doAction(button) {
       else await refreshState();
       return;
     case 'retry': return refreshEverything();
+    case 'overview-retry': overviewCache=null;render();return;
+    case 'name-spin': return runNameSpin();
     case 'back': slotId = ''; render(); return;
     case 'slot': if (slot?.open) { slotId = slot.id; initAudio(); render(); } return;
     case 'unlock-slot': if(slot && !slot.open) unlockSlot(slot); return;

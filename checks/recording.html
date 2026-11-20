@@ -6,8 +6,8 @@
 <label>参加人数 <select id="people"><option value="1">1人（短いタイトルと説明）</option><option value="3" selected>3人（複数のカード）</option></select></label><br>
 <button id="run">テスト動画を作成</button><p id="status" role="status">開始すると約15〜25秒で結果を表示します。（集合・効果音 v8）</p><video id="clip" controls playsinline hidden></video><a id="download" hidden>テスト動画を保存</a>
 <script type="module">
-import {startRecording} from '../recording.js?v=20261120-meeting8';
-import {soundOn,toggleSound} from '../wheel.js?v=20261120-meeting8';
+import {startRecording} from '../recording.js?v=20261120-finale1';
+import {soundOn,toggleSound} from '../wheel.js?v=20261120-finale1';
 const button=document.getElementById('run'),status=document.getElementById('status'),clip=document.getElementById('clip');
 button.onclick=async()=>{
   const count=Number(document.getElementById('people').value);

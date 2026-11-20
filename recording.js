@@ -1,4 +1,4 @@
-import {recordingAudio,createWheelRenderer,spinPosition,colorAt} from './wheel.js?v=20261120-meeting8';
+import {recordingAudio,createWheelRenderer,spinPosition,colorAt} from './wheel.js?v=20261120-finale1';
 
 export function recordingMime(Recorder = globalThis.MediaRecorder) {
   if (!Recorder) return '';

@@ -71,16 +71,44 @@ function drumRoll(output=null,elapsed=0,duration=7.5,sources=null) {
   const gate=context.createGain(),active=new Set();
   gate.gain.setValueAtTime(sound?1:0,context.currentTime);gate.connect(output || context.destination);rollGates.add(gate);
   const release=()=>{rollGates.delete(gate);gate.disconnect();};
-  let hit=0;
-  for(let t=Math.max(0,elapsed);t<duration;t+=1/(9+17*Math.pow(t/duration,1.5))) {
+  const begin=Math.max(0,elapsed),beat=60/138;
+  function track(source,nodes,at,length) {
+    active.add(source);sources?.add(source);
+    source.onended=()=>{active.delete(source);sources?.delete(source);source.disconnect();nodes.forEach(node=>node.disconnect());if(!active.size)release();};
+    source.start(at);source.stop(at+length);
+  }
+  function noise(t,frequency,peak,length=.065) {
+    if(t<begin || t>=duration) return;
     const source=context.createBufferSource(),filter=context.createBiquadFilter(),gain=context.createGain();
     const at=context.currentTime+t-elapsed+(output?1/24:0);
-    source.buffer=snareBuffer;filter.type='highpass';filter.frequency.setValueAtTime(1100,at);
-    const peak=(.035+.065*t/duration)*(hit++%2?.65:1);
-    gain.gain.setValueAtTime(.0001,at);gain.gain.linearRampToValueAtTime(peak,at+.003);gain.gain.exponentialRampToValueAtTime(.0001,at+.065);
-    source.connect(filter);filter.connect(gain);gain.connect(gate);active.add(source);sources?.add(source);
-    source.onended=()=>{active.delete(source);sources?.delete(source);source.disconnect();filter.disconnect();gain.disconnect();if(!active.size)release();};
-    source.start(at);source.stop(at+.075);
+    source.buffer=snareBuffer;filter.type='highpass';filter.frequency.setValueAtTime(frequency,at);
+    gain.gain.setValueAtTime(.0001,at);gain.gain.linearRampToValueAtTime(peak,at+.003);gain.gain.exponentialRampToValueAtTime(.0001,at+length);
+    source.connect(filter);filter.connect(gain);gain.connect(gate);track(source,[filter,gain],at,length+.01);
+  }
+  function tone(t,frequency,type,peak,length,end=frequency) {
+    if(t<begin || t>=duration || !context.createOscillator) return;
+    const source=context.createOscillator(),gain=context.createGain(),at=context.currentTime+t-elapsed+(output?1/24:0);
+    source.type=type;source.frequency.setValueAtTime(frequency,at);source.frequency.exponentialRampToValueAtTime(end,at+Math.min(.07,length));
+    gain.gain.setValueAtTime(.0001,at);gain.gain.linearRampToValueAtTime(peak,at+.006);gain.gain.exponentialRampToValueAtTime(.0001,at+length);
+    source.connect(gain);gain.connect(gate);track(source,[gain],at,length+.01);
+  }
+  // An original, bouncy game-show groove: kick, swung hats, bass and bright marimba notes.
+  const melody=[523.25,659.25,783.99,880,783.99,659.25,587.33,783.99];
+  for(let i=0;i*beat/2<duration;i++) {
+    const t=i*beat/2+(i%2?beat*.07:0);
+    noise(t,6000,.018,.025);
+    tone(t,melody[i%melody.length],'sine',.045,.17);
+    tone(t,melody[i%melody.length]*2,'sine',.01,.09);
+    if(i%2===0) {
+      tone(t,145,'sine',.13,.12,48);
+      tone(t,[130.81,196,174.61,196][Math.floor(i/2)%4],'triangle',.055,.2);
+    }
+    if(i%4===2) noise(t,1000,.09,.085);
+  }
+  // Keep a real roll, then build excitement with faster strokes in the final stretch.
+  for(let i=0,t=0;t<duration;i++) {
+    noise(t,1400,(.025+.05*t/duration)*(i%2?.65:1));
+    t+=beat/(t>duration*.68?4+12*(t/duration-.68)/.32:2);
   }
   return {stop(){for(const source of active){try{source.stop();}catch{}}active.clear();release();}};
 }
@@ -125,14 +153,16 @@ export function createWheelRenderer(canvas,candidates,pixelRatio = window.device
   const radius = 232;
   const slices = candidates.length ? candidates : colors.map(()=>null);
   const n = slices.length;
-  const step = TAU/n;
+  const weights=slices.map(item=>item?.weight ?? 1),total=weights.reduce((a,b)=>a+b,0);
+  let position=0;
   const disk = document.createElement('canvas');
   disk.width = disk.height = 520*dpr;
   const dial = disk.getContext('2d');
   dial.scale(dpr,dpr);
   dial.translate(center,center);
   for (let i=0;i<n;i++) {
-    const point = i*step - Math.PI/2;
+    const step=TAU*weights[i]/total;
+    const point = position - Math.PI/2;position+=step;
     dial.beginPath();
     dial.moveTo(0,0);
     dial.arc(0,0,radius,point,point+step);
@@ -148,7 +178,7 @@ export function createWheelRenderer(canvas,candidates,pixelRatio = window.device
     dial.arc(radius-13,0,3.2,0,TAU);
     dial.fillStyle = '#fff9';
     dial.fill();
-    if (slices[i]) {
+    if (slices[i] && step>.025) {
       const {name,title} = slices[i];
       const flip = Math.cos(point+step/2) < -0.04;
       dial.translate(140,0);
