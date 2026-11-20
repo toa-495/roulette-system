@@ -3,7 +3,6 @@ const colors = ['#e47757','#f0bb4b','#77ae91','#7c93dc','#b76ca3','#5cb8c1','#ee
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 let sound = localStorage.getItem('roulette.sound') !== 'off';
 let context;
-const audioOutputs = new Set();
 
 export const soundOn = () => sound;
 export async function initAudio(force = false) {
@@ -19,27 +18,34 @@ export async function recordingAudio() {
   await initAudio(true);
   if (!context || context.state !== 'running') return null;
   const output = context.createMediaStreamDestination();
-  audioOutputs.add(output);
-  return {stream:output.stream,close(){audioOutputs.delete(output);output.disconnect();output.stream.getTracks().forEach(track=>track.stop());}};
+  const sources=new Set();
+  // A recording gets only cues produced by its own timeline, never live UI cues.
+  return {
+    stream:output.stream,
+    now:()=>context.currentTime*1000,
+    reveal:elapsed=>revealSound(output,elapsed,sources),
+    tick:()=>clickSound(false,output,sources),
+    finish:()=>clickSound(true,output,sources),
+    close(){for(const source of sources){try{source.stop();}catch{}}sources.clear();output.disconnect();output.stream.getTracks().forEach(track=>track.stop());}
+  };
 }
-function connectAudio(gain) {
-  gain.connect(context.destination);
-  for (const output of audioOutputs) gain.connect(output);
-}
-export function revealSound() {
+export function revealSound(output = null,elapsed = 0,sources = null) {
   if (!sound || !context || context.state !== 'running') return;
   for (const [i,frequency] of [392,494,587,784,988].entries()) {
+    const delay=i*.34-elapsed;
+    if(delay<0) continue;
     const oscillator = context.createOscillator();
     const gain = context.createGain();
-    const at = context.currentTime + i*.34;
+    const at = context.currentTime + delay;
     oscillator.type = 'sine';
     oscillator.frequency.setValueAtTime(frequency,at);
     gain.gain.setValueAtTime(.001,at);
     gain.gain.exponentialRampToValueAtTime(.09,at+.025);
     gain.gain.exponentialRampToValueAtTime(.001,at+.55);
     oscillator.connect(gain);
-    connectAudio(gain);
-    oscillator.onended=()=>{oscillator.disconnect();gain.disconnect();};
+    gain.connect(output || context.destination);
+    sources?.add(oscillator);
+    oscillator.onended=()=>{sources?.delete(oscillator);oscillator.disconnect();gain.disconnect();};
     oscillator.start(at);oscillator.stop(at+.56);
   }
 }
@@ -49,7 +55,7 @@ export function toggleSound() {
   initAudio();
   return sound;
 }
-function clickSound(finish = false) {
+function clickSound(finish = false,output = null,sources = null) {
   if (!sound || !context || context.state !== 'running') return;
   const oscillator = context.createOscillator();
   const gain = context.createGain();
@@ -60,8 +66,9 @@ function clickSound(finish = false) {
   gain.gain.setValueAtTime(finish ? 0.12 : 0.07,at);
   gain.gain.exponentialRampToValueAtTime(0.001,at+(finish ? 0.23 : 0.042));
   oscillator.connect(gain);
-  connectAudio(gain);
-  oscillator.onended=()=>{oscillator.disconnect();gain.disconnect();};
+  gain.connect(output || context.destination);
+  sources?.add(oscillator);
+  oscillator.onended=()=>{sources?.delete(oscillator);oscillator.disconnect();gain.disconnect();};
   oscillator.start(at);
   oscillator.stop(at+(finish ? 0.24 : 0.05));
 }
@@ -73,8 +80,8 @@ function truncate(ctx,text,width) {
   return chars.join('')+'…';
 }
 
-export function wheel(canvas,pointer,candidates,spin,clock,onFinish) {
-  const dpr = Math.min(2,window.devicePixelRatio || 1);
+export function createWheelRenderer(canvas,candidates,pixelRatio = window.devicePixelRatio || 1) {
+  const dpr = Math.min(2,pixelRatio);
   canvas.width = canvas.height = 520*dpr;
   const ctx = canvas.getContext('2d');
   ctx.scale(dpr,dpr);
@@ -159,34 +166,51 @@ export function wheel(canvas,pointer,candidates,spin,clock,onFinish) {
     ctx.quadraticCurveTo(-3,-3,0,-23); ctx.fill();
     ctx.restore();
   }
+  return paint;
+}
+export function spinPosition(spin,elapsed,reduceMotion = false) {
+  const progress=Math.max(0,Math.min(1,elapsed/spin.duration));
+  const ease=(1-Math.pow(1-progress,3.8))-2.7*progress*Math.pow(1-progress,11);
+  const turns=reduceMotion?(progress===1?spin.angle:0):(spin.turns+spin.angle)*ease;
+  return {progress,turns};
+}
+const spinClocks=new Map();
+export function wheel(canvas,pointer,candidates,spin,clock,onFinish) {
+  const paint=createWheelRenderer(canvas,candidates);
   let frame;
-  let lastTick = -1;
-  let lastSound = -Infinity;
-  let pointerTime = -Infinity;
-  function stepFrame(now) {
-    const progress = Math.max(0,Math.min(1,(Date.now()+clock-spin.startAt)/spin.duration));
-    // A quick launch eases into a long, continuous deceleration.
-    const p = progress;
-    const ease = (1-Math.pow(1-p,3.8)) - 2.7*p*Math.pow(1-p,11);
-    const turns = reduced.matches ? (p===1 ? spin.angle : 0) : (spin.turns+spin.angle)*ease;
-    paint(turns);
-    const tick = Math.floor(turns*n);
-    if (tick !== lastTick && lastTick >= 0 && p > 0 && p < 1) {
-      pointerTime = now;
-      if (now-lastSound >= 42) { clickSound(); lastSound = now; }
+  let timing;
+  if(spin) {
+    timing=spinClocks.get(spin.id);
+    if(!timing) {
+      timing={at:performance.now(),elapsed:Date.now()+clock-spin.startAt,lastTick:-1,lastSound:-Infinity,pointerTime:-Infinity,finished:false};
+      spinClocks.set(spin.id,timing);
+      if(spinClocks.size>80) spinClocks.delete(spinClocks.keys().next().value);
     }
-    lastTick = tick;
-    const impulse = Math.max(0,1-(now-pointerTime)/115);
+  }
+  const elapsed=at=>timing.elapsed+at-timing.at;
+  function stepFrame(now) {
+    const {progress:p,turns}=spinPosition(spin,elapsed(now),reduced.matches);
+    paint(turns);
+    const tick = Math.floor(turns*candidates.length);
+    if (tick !== timing.lastTick && timing.lastTick >= 0 && p > 0 && p < 1) {
+      timing.pointerTime = now;
+      if (now-timing.lastSound >= 42) { clickSound(); timing.lastSound = now; }
+    }
+    timing.lastTick = tick;
+    const impulse = Math.max(0,1-(now-timing.pointerTime)/115);
     pointer.style.transform = reduced.matches ? '' : 'rotate('+(impulse*12)+'deg)';
     if (p < 1) frame = requestAnimationFrame(stepFrame);
     else {
       pointer.style.transform = '';
-      clickSound(true);
+      if(!timing.finished) clickSound(true);
+      timing.finished=true;
       onFinish();
     }
   }
-  const active = spin && Date.now()+clock < spin.startAt+spin.duration;
+  const active = spin && elapsed(performance.now())<spin.duration;
+  // Paint synchronously, so a new canvas is never blank for one animation frame.
+  paint(spin?(active?spinPosition(spin,elapsed(performance.now()),reduced.matches).turns:spin.angle):0);
   if (active) frame = requestAnimationFrame(stepFrame);
-  else paint(spin?.angle || 0);
+  else if(timing) timing.finished=true;
   return () => cancelAnimationFrame(frame);
 }

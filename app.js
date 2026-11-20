@@ -1,8 +1,8 @@
 import {api,configured,pollMs,passwordProof,setToken,token,uid} from './api.js';
 import {$,e,icon,yen,initials,hour,date,time,richView,safeUrl,photoButton,showPhoto,notify,modal,closeModal,bindForm,copyText,clearImages} from './ui.js';
 import {editProposal,editExpense,userForm,eventForm,registrations,passwordForm} from './forms.js';
-import {wheel,colorAt,toggleSound,initAudio,soundOn,revealSound} from './wheel.js?v=20261120-features1';
-import {startRecording,recordingSupported} from './recording.js?v=20261120-features1';
+import {wheel,colorAt,toggleSound,initAudio,soundOn,revealSound} from './wheel.js?v=20261120-video3';
+import {startRecording,recordingSupported} from './recording.js?v=20261120-video3';
 
 const main = $('main');
 const dialog = $('modal');
@@ -347,7 +347,7 @@ function wireRoom(slot) {
   const spinning = activeSpin(slot);
   const unchanged = slot.spin && JSON.stringify(candidates)===JSON.stringify(slot.spin.candidates);
   // Canvas text cannot share the DOM blur animation. Keep its title hidden until the same reveal ends.
-  const displayCandidates = (spinning?slot.spin.candidates:candidates).map(item=>
+  const displayCandidates = (spinning?slot.spin.candidates:slot.people.map(item=>({userId:item.userId,name:item.name,title:item.proposal?.title || '未開示'}))).map(item=>
     roomRevealing.has(item.userId)?{...item,title:'開示中…'}:item);
   stoppedWheel = wheel($('wheel'),$('pointer'),displayCandidates,
     spinning || unchanged ? slot.spin : null,clock,render);
@@ -408,13 +408,13 @@ function recordFrame(context) {
   return {
     eventTitle:state.event.title,slotTitle:slot.title || hour(slot.start)+'〜'+hour(slot.end),
     people:slot.people,focusId:recordingFocusId,spin:slot.spin,spinning,
+    serverNow:now(),
     winner:finished && selected?selected:null,
     revealProgress:Object.fromEntries(slot.people.map(person=>{
       const key=JSON.stringify([eventId,slot.id,person.userId,person.openedAt]);
       const began=revealStarts.get(key);
       return [person.userId,began===undefined?0:Math.min(1,(performance.now()-began)/REVEAL_MS)];
     })),
-    wheel:$('wheel')
   };
 }
 async function startRoomRecording(slot) {
