@@ -337,9 +337,9 @@ function meetingWheelPeople(m) {
   // Older GAS versions expose anonymous choice IDs; map them to member display names.
   const ordered=state.members.slice().sort((a,b)=>String(a.id).localeCompare(String(b.id)));
   return (m.spin?.candidates || m.candidates).map(person=>{
-    const match=/^choice_(\\d+)$/.exec(String(person.userId));
+    const match=/^choice_(\d+)$/.exec(String(person.userId));
     const fallback=match?ordered[Number(match[1])]?.name:'';
-    const name=/^集合場所\\s*\\d+$/.test(person.name)?fallback || '参加者':person.name || fallback || '参加者';
+    const name=/^集合場所\s*\d+$/.test(person.name)?fallback || '参加者':person.name || fallback || '参加者';
     return {...person,name,title:''};
   });
 }
