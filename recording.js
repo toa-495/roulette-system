@@ -1,4 +1,4 @@
-import {recordingAudio,createWheelRenderer,spinPosition,colorAt} from './wheel.js?v=20261120-finale1';
+import {recordingAudio,createWheelRenderer,spinPosition,colorAt} from './wheel.js?v=20261120-ui2';
 
 export function recordingMime(Recorder = globalThis.MediaRecorder) {
   if (!Recorder) return '';
@@ -56,7 +56,9 @@ export function recordingTimeline(first,reduceMotion = false) {
       if(pose.progress===1 && !currentSpin.finished) {cues.push({kind:'finish'});currentSpin.finished=true;}
     }
     const winner=frame.spin && pose.progress===1?frame.people.find(person=>person.userId===frame.spin.winnerId && person.proposal) || frame.winner:null;
-    const candidates=frame.spin?frame.spin.candidates.map(person=>frame.spin.kind==='meeting'?{...person,title:frame.people.find(p=>p.userId===person.userId)?.proposal?.title || '未開示'}:person):frame.people.map(person=>({userId:person.userId,name:person.name,title:person.proposal?.title || '未開示'}));
+    const candidates=frame.kind==='meeting-place'
+      ? (frame.spin?.candidates || frame.people.map(person=>({userId:person.userId,name:person.name,title:''})))
+      : frame.spin?frame.spin.candidates:frame.people.map(person=>({userId:person.userId,name:person.name,title:person.proposal?.title || '未開示'}));
     return {...frame,winner,spinning:!!frame.spin && pose.progress<1,revealProgress:progress,turns:pose.turns,cues,
       wheelCandidates:candidates.map(person=>({...person,title:progress[person.userId]===undefined || progress[person.userId]>=1?person.title:frame.people.find(item=>item.userId===person.userId)?.proposal?'開示中…':'未開示'}))};
   };
@@ -162,12 +164,12 @@ function painter(canvas) {
     const page=Math.floor(at/4000)%pageCount,offset=page*pageSize,shown=candidates.slice(offset,offset+pageSize);
     const listY=top+wheelSize+96;
     box(24,listY,672,210,30,white);
-    write('集合場所の候補'+(pageCount>1?'　'+(offset+1)+'〜'+(offset+shown.length)+' / '+candidates.length:''),48,listY+20,624,24,ink,800);
+    write('抽選する参加者'+(pageCount>1?'　'+(offset+1)+'〜'+(offset+shown.length)+' / '+candidates.length:''),48,listY+20,624,24,ink,800);
     shown.forEach((person,i)=>{
       const x=48+(i%2)*320,y=listY+67+Math.floor(i/2)*65;
       ctx.beginPath();ctx.arc(x+7,y+9,6,0,Math.PI*2);ctx.fillStyle=colorAt(offset+i);ctx.fill();
       ctx.font='600 21px system-ui,sans-serif';
-      const wrapped=lines(ctx,person.title,274);
+      const wrapped=lines(ctx,person.name,274);
       wrapped.slice(0,2).forEach((line,j)=>write(line+(j===1 && wrapped.length>2?'…':''),x+23,y+j*27,274,21,ink,600));
     });
   }
