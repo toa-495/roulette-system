@@ -319,7 +319,7 @@ function renderDay() {
 function renderMeeting() {
   const m=state.meeting;if(!m) return '';
   const spinning=!!activeSpin(m),done=!!m.spin && !spinning;
-  const place=done?(m.place || m.spin.candidates.find(p=>p.userId===m.spin.winnerId)?.title):'';
+  const place=done?(m.place || ''):'';
   const names=m.members.map(member=>'<li class="'+(member.arrived?'arrived':'')+'">'+e(member.name)+'　'+(m.spin?(member.arrived?'到着済み':'到着待ち'):(member.registered?'登録済み':'登録待ち'))+'</li>').join('');
   return '<section class="panel meeting-panel"><div class="spread"><h2>集合場所ルーレット</h2><span class="chip">'+m.registered+' / '+m.total+' 登録</span></div>'+
     '<p class="muted">全員の最初の予定がそろうと集合場所を決められます。</p>'+
@@ -335,9 +335,12 @@ function renderMeeting() {
 }
 function wireMeeting() {
   const m=state?.meeting;if(!m || !$('meeting-wheel')) return;
-  const memberNames=new Map(state.members.map(member=>[String(member.id),member.name]));
-  const people=(m.spin?.candidates || m.candidates).map(person=>({...person,name:memberNames.get(String(person.userId)) || person.name || '参加者',title:''}));
-  stoppedWheel=wheel($('meeting-wheel'),$('meeting-pointer'),people,m.spin,clock,()=>spinFinished(m.spin));
+  // The server supplies participant names, not meeting locations, until the draw finishes.
+  const people=(m.spin?.candidates || m.candidates).map(person=>({...person,title:''}));
+  stoppedWheel=wheel($('meeting-wheel'),$('meeting-pointer'),people,m.spin,clock,()=>{
+    spinFinished(m.spin);
+    void refreshState(true);
+  });
 }
 async function meetingAction(action) {
   const m=state.meeting;if(!m || pending || recordingPending || activeSpin(m)) return;
@@ -552,14 +555,15 @@ function recordFrame(context) {
     if(slotId || !state?.meeting) return null;
     const m=state.meeting,spinning=!!activeSpin(m);
     // Show participant names on the wheel; disclose only the winning meeting place after it stops.
-    const memberNames=new Map(state.members.map(member=>[String(member.id),member.name]));
     const originals=m.spin?.candidates || m.candidates;
-    const candidates=originals.map(person=>({userId:person.userId,name:memberNames.get(String(person.userId)) || person.name || '参加者',title:''}));
-    const people=originals.map((person,i)=>({userId:person.userId,name:candidates[i].name,proposal:{title:person.title,rich:'',locations:[],links:[]}}));
+    const candidates=originals.map(person=>({userId:person.userId,name:person.name || '参加者',title:''}));
+    const revealedPlace=!spinning && m.place ? m.place : '';
+    const people=candidates.map(person=>({userId:person.userId,name:person.name,
+      proposal:revealedPlace && person.userId===m.spin?.winnerId?{title:revealedPlace,rich:'',locations:[],links:[]}:null}));
     const spin=m.spin?Object.fromEntries(['id','startAt','duration','turns','angle','winnerId','number'].map(key=>[key,m.spin[key]])):null;
     if(spin) spin.candidates=candidates;
     return {kind:'meeting-place',eventTitle:state.event.title,slotTitle:'集合場所ルーレット',people,spin,spinning,
-      serverNow:now(),winner:spin && !spinning?people.find(person=>person.userId===spin.winnerId) || null:null,
+      serverNow:now(),winner:spin && revealedPlace?people.find(person=>person.userId===spin.winnerId) || null:null,
       revealProgress:Object.fromEntries(people.map(person=>[person.userId,1]))};
   }
   if(slotId!==context.slotId) return null;
