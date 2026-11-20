@@ -156,7 +156,7 @@ export function editProposal(eventId,slot,user,done) {
     '<div class="fields"><span id="editor-label" class="label">説明'+required+'</span><div class="editor-frame">'+toolbar()+
     '<div id="editor" class="editor" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="editor-label" aria-required="true">'+richView(data?.rich)+'</div></div>'+
     '<div><button id="preview-rich" class="secondary" type="button">書式をプレビュー</button></div><div id="rich-preview" class="rich-view panel" hidden></div></div>'+
-    (first?'<div class="fields"><span class="label">集合場所'+required+' <span class="info-help"><button type="button" class="info-mark" aria-label="集合場所の書き方" aria-describedby="meeting-help">ⓘ</button><span class="info-tooltip" id="meeting-help" role="tooltip">'+e(meetingHint)+'</span></span></span>'+input('locations',data?.locations?.[0] || '', 'required maxlength="180" placeholder="例：〇駅の改札前"')+'</div>':
+    (first?'<div class="fields"><span class="label">集合場所'+required+' <span class="info-help"><button type="button" class="info-mark" aria-label="集合場所の書き方" aria-describedby="meeting-help">ⓘ</button><span class="info-tooltip" id="meeting-help" role="tooltip">'+e(meetingHint)+'</span></span></span>'+input('locations',data?.locations?.[0] || '', 'required maxlength="180" aria-label="集合場所" aria-describedby="meeting-help" placeholder="例：〇駅の改札前"')+'</div>':
       field('場所候補（1行につき1件）',textArea('locations',data?.locations.join('\n'),'rows="2"'),optional))+
     field('参考URL（1行につき1件）',textArea('links',data?.links.join('\n'),'rows="2"'),optional)+photoField('参考画像')+submit()+'</form>');
   bindEditor();
