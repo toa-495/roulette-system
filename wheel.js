@@ -1,18 +1,47 @@
 const TAU = Math.PI*2;
 const colors = ['#e47757','#f0bb4b','#77ae91','#7c93dc','#b76ca3','#5cb8c1','#ee8c8e','#aaa151'];
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
-let sound = localStorage.getItem('roulette.sound') === 'on';
+let sound = localStorage.getItem('roulette.sound') !== 'off';
 let context;
+const audioOutputs = new Set();
 
 export const soundOn = () => sound;
-export async function initAudio() {
-  if (!sound) return;
+export async function initAudio(force = false) {
+  if (!sound && !force) return;
   const Audio = window.AudioContext || window.webkitAudioContext;
   if (!Audio) return;
   try {
     context ||= new Audio();
     if (context.state !== 'running') await context.resume();
   } catch {}
+}
+export async function recordingAudio() {
+  await initAudio(true);
+  if (!context || context.state !== 'running') return null;
+  const output = context.createMediaStreamDestination();
+  audioOutputs.add(output);
+  return {stream:output.stream,close(){audioOutputs.delete(output);output.disconnect();output.stream.getTracks().forEach(track=>track.stop());}};
+}
+function connectAudio(gain) {
+  gain.connect(context.destination);
+  for (const output of audioOutputs) gain.connect(output);
+}
+export function revealSound() {
+  if (!sound || !context || context.state !== 'running') return;
+  for (const [i,frequency] of [392,494,587,784,988].entries()) {
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    const at = context.currentTime + i*.34;
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(frequency,at);
+    gain.gain.setValueAtTime(.001,at);
+    gain.gain.exponentialRampToValueAtTime(.09,at+.025);
+    gain.gain.exponentialRampToValueAtTime(.001,at+.55);
+    oscillator.connect(gain);
+    connectAudio(gain);
+    oscillator.onended=()=>{oscillator.disconnect();gain.disconnect();};
+    oscillator.start(at);oscillator.stop(at+.56);
+  }
 }
 export function toggleSound() {
   sound = !sound;
@@ -30,7 +59,9 @@ function clickSound(finish = false) {
   oscillator.frequency.exponentialRampToValueAtTime(finish ? 780 : 640,at+0.033);
   gain.gain.setValueAtTime(finish ? 0.12 : 0.07,at);
   gain.gain.exponentialRampToValueAtTime(0.001,at+(finish ? 0.23 : 0.042));
-  oscillator.connect(gain).connect(context.destination);
+  oscillator.connect(gain);
+  connectAudio(gain);
+  oscillator.onended=()=>{oscillator.disconnect();gain.disconnect();};
   oscillator.start(at);
   oscillator.stop(at+(finish ? 0.24 : 0.05));
 }

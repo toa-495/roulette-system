@@ -1,7 +1,8 @@
 import {api,configured,pollMs,passwordProof,setToken,token,uid} from './api.js';
 import {$,e,icon,yen,initials,hour,date,time,richView,safeUrl,photoButton,showPhoto,notify,modal,closeModal,bindForm,copyText,clearImages} from './ui.js';
 import {editProposal,editExpense,userForm,eventForm,registrations,passwordForm} from './forms.js';
-import {wheel,colorAt,toggleSound,initAudio,soundOn} from './wheel.js';
+import {wheel,colorAt,toggleSound,initAudio,soundOn,revealSound} from './wheel.js?v=20261120-features1';
+import {startRecording,recordingSupported} from './recording.js?v=20261120-features1';
 
 const main = $('main');
 const dialog = $('modal');
@@ -30,6 +31,13 @@ const revealStarts = new Map();
 let roomRevealing = new Map();
 let expanded = new Set();
 let syncRunning = false;
+let previewExpiryTimer;
+let previewActive = false;
+let recordingSession;
+let recordingPending = false;
+let recordingGeneration = 0;
+let recordingFocusId = '';
+let savedVideo;
 
 function now() { return Date.now()+clock; }
 function activeSpin(slot) { return slot.spin && now() < slot.spin.startAt+slot.spin.duration; }
@@ -54,6 +62,11 @@ function clearAuth(message) {
   clearImages();
   revealStarts.clear();
   clearTimeout(revealTimer);
+  recordingGeneration++;
+  recordingSession?.controller.cancel();
+  recordingSession=null;recordingPending=false;
+  if(savedVideo) URL.revokeObjectURL(savedVideo.url);
+  savedVideo=null;
   user = home = state = admin = null;
   view = 'day';
   slotId = '';
@@ -181,7 +194,8 @@ function render() {
   stoppedWheel?.();
   clearTimeout(spinTimer);
   clearTimeout(revealTimer);
-  $('top-actions').innerHTML = '<button type="button" class="secondary" data-action="account" aria-label="アカウント設定">'+e(user.name)+'</button>';
+  $('top-actions').innerHTML = (savedVideo?'<button type="button" class="secondary" data-action="saved-video">動画を保存</button>':'')+
+    '<button type="button" class="secondary" data-action="account" aria-label="アカウント設定">'+e(user.name)+'</button>';
   const selected = state?.event || home?.events.find(event=>event.id===eventId);
   const shownSlot = view==='day' && slotId ? state?.slots.find(slot=>slot.id===slotId) : null;
   if (shownSlot?.id !== lastSlot) {
@@ -194,8 +208,11 @@ function render() {
     (selected?'<p>'+e(date(selected.start))+'　'+e(hour(selected.start)+'〜'+hour(selected.end))+'</p>':'')+'</div>'+chooser+'</section>';
   main.innerHTML = hero+navButtons()+'<div id="page-content"></div>';
   main.setAttribute('aria-busy','false');
-  if ($('event-select')) $('event-select').onchange = event=>{
-    eventId = event.target.value;
+  if ($('event-select')) $('event-select').onchange = async event=>{
+    const selectedId=event.target.value;
+    // Changing events also ends any recording before the next canvas appears.
+    await finishRecording();
+    eventId = selectedId;
     slotId = '';
     state = null;
     if (view==='admin') view='day';
@@ -230,6 +247,7 @@ function renderDay() {
         '<div><h3>'+e(slot.title || 'この時間の予定')+'</h3><span class="chip '+(!slot.open?'locked':'')+'">'+(!slot.open?icon('lock',13):'')+e(status)+'</span></div>'+
         '<button class="secondary" type="button" data-action="slot" data-key="'+e(slot.id)+'" '+(!slot.open?'disabled':'')+'>'+
         (!slot.open?'解禁前':result?'結果を見る':'開く')+icon('arrow',16)+'</button>'+
+        (!slot.open?'<button class="quiet slot-preview" type="button" data-action="preview-slot" data-key="'+e(slot.id)+'">管理者パスワードで確認</button>':'')+
         (result?'<details class="slot-winner"><summary><strong>'+e(result.title)+'</strong> <span class="muted">／ '+e(result.name)+'</span></summary><div>'+proposalContent(result,slot.id,false)+'</div></details>':'')+
         '</article>';
     }).join('')+'</div>';
@@ -243,17 +261,18 @@ function renderPlans() {
     '<button class="secondary" type="button" data-action="'+(slot.editable?'plan':'preview-plan')+'" data-key="'+e(slot.id)+'" '+(!slot.editable && !slot.mine?'disabled':'')+'>'+
     (slot.editable?(slot.mine?'編集する':'登録する'):(slot.mine?'確認する':'締切済み'))+'</button></article>').join('')+'</div>';
 }
-function proposalContent(proposal,slot,includeTitle = true) {
+function proposalContent(proposal,slot,includeTitle = true,previewToken = '') {
   const places = proposal.locations.length ? '<p><strong>場所候補</strong></p><ul>'+proposal.locations.map(place=>'<li>'+e(place)+'</li>').join('')+'</ul>' : '';
   const links = proposal.links.length ? '<p><strong>参考リンク</strong></p><ul>'+proposal.links.filter(safeUrl).map((link,index)=>'<li><a target="_blank" rel="noopener noreferrer" href="'+e(link)+'">リンク '+(index+1)+'</a></li>').join('')+'</ul>' : '';
   return (includeTitle?'<h3>'+e(proposal.title)+'</h3>':'')+'<div class="rich-view">'+richView(proposal.rich)+'</div>'+places+links+
-    (proposal.image?photoButton({kind:'proposal',eventId,slotId:slot,userId:proposal.userId,key:proposal.image},'参考画像を見る'):'');
+    (proposal.image?photoButton({kind:'proposal',eventId,slotId:slot,userId:proposal.userId,key:proposal.image,...(previewToken?{previewToken}: {})},'参考画像を見る'):'');
 }
 function candidatesFor(slot) {
   return slot.people.filter(item=>item.proposal).map(item=>({userId:item.userId,name:item.name,title:item.proposal.title}));
 }
 function prepareReveals(slot) {
   const at = performance.now();
+  let newOpening=false;
   roomRevealing = new Map();
   for (const item of slot.people) {
     if (!item.proposal) continue;
@@ -261,10 +280,13 @@ function prepareReveals(slot) {
     if (!revealStarts.has(key)) {
       revealStarts.set(key,at);
       expanded.add(item.userId);
+      recordingFocusId=item.userId;
+      newOpening=true;
     }
     const elapsed = Math.max(0,at-revealStarts.get(key));
     if (elapsed < REVEAL_MS) roomRevealing.set(item.userId,elapsed);
   }
+  if(newOpening) revealSound();
   if (roomRevealing.size) {
     const remaining = Math.min(...Array.from(roomRevealing.values(),elapsed=>REVEAL_MS-elapsed));
     revealTimer = setTimeout(render,Math.ceil(remaining)+20);
@@ -293,6 +315,7 @@ function renderRoom(slot) {
   }).join('');
   return '<div class="spread"><button type="button" class="secondary" data-action="back">'+icon('back',17)+'時間枠一覧</button><span id="sync-label" class="sync"></span></div>'+
     '<div class="slot-head"><h1>'+e(slot.title || hour(slot.start)+'〜'+hour(slot.end))+'</h1><p class="muted">'+e(state.event.title)+(slot.title?'　'+e(hour(slot.start)+'〜'+hour(slot.end)):'')+'</p></div>'+
+    recordingControls()+
     '<div class="room-grid"><div>'+
     (win?'<section class="panel win-panel"><span class="winner-tag">'+icon('spark',14)+'採用された予定</span><p class="muted">'+e(win.name)+'</p>'+
       '<div '+revealAttrs('winner-content',win.userId)+'>'+proposalContent(win,slot.id)+'</div></section>':(!spinning&&slot.winnerUnavailable?'<section class="panel win-panel"><p>前回の当選者は現在の参加者に含まれていません。必要に応じて再抽選してください。</p></section>':''))+
@@ -325,6 +348,114 @@ function wireRoom(slot) {
       else expanded.delete(details.dataset.openPerson);
     };
   }
+}
+function previewSlot(slot) {
+  const selectedEvent=eventId;
+  const viewer=user.id;
+  modal('解禁前の予定を確認','<p>管理者から教えてもらったパスワードを入力してください。確認画面は5分間表示できます。</p>'+
+    '<form id="preview-auth"><label class="fields"><span>管理者のパスワード</span><input name="password" type="password" autocomplete="off" maxlength="128" required></label>'+
+    '<details><summary>管理者のユーザー名を変更</summary><label class="fields"><span>管理者ユーザー名</span><input name="adminUsername" value="admin" autocomplete="off" autocapitalize="none" spellcheck="false" required></label></details>'+
+    '<div class="form-error" role="alert"></div><button class="primary" type="submit">予定を確認する</button></form>');
+  bindForm('preview-auth',async form=>{
+    const password=form.elements.password.value;
+    const adminUsername=form.elements.adminUsername.value.trim().toLowerCase();
+    form.elements.password.value='';
+    const proof=await passwordProof(adminUsername,password);
+    let result;
+    try {result=await api('admin.preview',{eventId:selectedEvent,slotId:slot.id,adminUsername,proof});}
+    catch(error) {
+      if(error.code==='VALIDATION_ERROR' && error.message.includes('操作が見つかりません')) throw new Error('この機能を使うには、管理者によるGASの更新が必要です。');
+      throw error;
+    }
+    if(eventId!==selectedEvent || user?.id!==viewer || !dialog.open || !form.isConnected) return;
+    clearTimeout(previewExpiryTimer);
+    previewActive=true;
+    modal('解禁前プレビュー','<div class="preview-banner"><strong>'+e(slot.title || hour(slot.start)+'〜'+hour(slot.end))+'</strong><p>この確認で、ほかの参加者への解禁・開示状態は変わりません。</p></div>'+
+      (result.people.length?'<div class="stack">'+result.people.map(person=>'<details class="form-box"><summary>'+e(person.name)+'：'+e(person.proposal.title)+'</summary>'+proposalContent(person.proposal,slot.id,false,result.previewToken)+'</details>').join('')+'</div>':'<p>まだ予定が登録されていません。</p>'));
+    previewExpiryTimer=setTimeout(()=>{
+      closeModal();notify('プレビューの閲覧時間が終了しました。もう一度パスワードを入力すると確認できます。');
+    },Math.max(0,result.expiresAt-now()));
+  });
+}
+dialog.addEventListener('close',()=>{
+  for(const input of dialog.querySelectorAll('input[type="password"]')) input.value='';
+  if(!previewActive) return;
+  clearTimeout(previewExpiryTimer);previewActive=false;
+  $('modal-body').innerHTML='';clearImages();
+});
+function recordingControls() {
+  const active=!!recordingSession;
+  const supported=recordingSupported();
+  return '<section class="panel recording-bar"><div><h2>'+(active?'<span class="record-dot"></span>動画を記録中':'思い出を動画に')+'</h2><p class="muted">'+
+    (active?'次の抽選結果が出たあとに自動停止します。画面を表示したまま操作してください。':supported?'開示前に開始すると、予定の文章・ルーレット・効果音を1本の縦長動画に残せます。':'このブラウザは動画の作成に対応していません。')+'</p></div>'+
+    '<button class="'+(active?'secondary':'primary')+'" type="button" data-action="'+(active?'stop-recording':'start-recording')+'" '+(!supported || recordingPending?'disabled':'')+'>'+
+    (recordingPending?'準備中…':active?'記録を終了して保存':'記録開始')+'</button></section>';
+}
+function recordFrame(context) {
+  if(!user || eventId!==context.eventId || slotId!==context.slotId || view!=='day') return null;
+  const slot=state?.slots.find(item=>item.id===context.slotId);
+  if(!slot?.open) return null;
+  const spinning=!!activeSpin(slot);
+  const finished=slot.spin && now()>=slot.spin.startAt+slot.spin.duration;
+  const selected=finished && slot.people.find(person=>person.userId===slot.spin.winnerId && person.proposal);
+  return {
+    eventTitle:state.event.title,slotTitle:slot.title || hour(slot.start)+'〜'+hour(slot.end),
+    people:slot.people,focusId:recordingFocusId,spin:slot.spin,spinning,
+    winner:finished && selected?selected:null,
+    revealProgress:Object.fromEntries(slot.people.map(person=>{
+      const key=JSON.stringify([eventId,slot.id,person.userId,person.openedAt]);
+      const began=revealStarts.get(key);
+      return [person.userId,began===undefined?0:Math.min(1,(performance.now()-began)/REVEAL_MS)];
+    })),
+    wheel:$('wheel')
+  };
+}
+async function startRoomRecording(slot) {
+  if(recordingSession || recordingPending || !slot?.open) return;
+  const context={eventId,slotId:slot.id};
+  const generation=++recordingGeneration;
+  recordingPending=true;render();
+  let made=false,stopReason='';
+  try {
+    const controller=await startRecording({
+      read:()=>recordFrame(context),
+      onReady:({blob,extension,reason})=>{
+        if(generation!==recordingGeneration || !user) return;
+        if(savedVideo) URL.revokeObjectURL(savedVideo.url);
+        savedVideo={blob,url:URL.createObjectURL(blob),filename:'roulette-'+new Date().toISOString().replace(/[:.]/g,'-')+'.'+extension};
+        made=true;stopReason=reason;
+      },
+      onError:error=>{if(generation===recordingGeneration && user) handle(error);},
+      onStop:()=>{
+        if(generation!==recordingGeneration) return;
+        recordingSession=null;recordingPending=false;
+        if(user) {render();if(made) {showSavedVideo();if(stopReason) notify(stopReason);}}
+      }
+    });
+    if(generation!==recordingGeneration || !recordFrame(context)) {await controller.cancel();return;}
+    recordingSession={...context,controller};
+  } finally {
+    if(generation===recordingGeneration) {recordingPending=false;if(user) render();}
+  }
+}
+async function finishRecording() {
+  if(recordingSession) await recordingSession.controller.stop();
+  else if(recordingPending) {recordingGeneration++;recordingPending=false;}
+}
+function showSavedVideo() {
+  if(!savedVideo) return;
+  const video=savedVideo;
+  let shareable=false;
+  try {shareable=typeof navigator.share==='function' && navigator.canShare?.({files:[new File([video.blob],video.filename,{type:video.blob.type})]});} catch {}
+  modal('動画を保存','<p>保存ボタンで端末に残してください。ページを閉じる前に保存しましょう。</p>'+
+    '<video class="recording-preview" controls playsinline src="'+e(video.url)+'"></video><div class="spread">'+
+    '<a class="button-link primary" data-video-download href="'+e(video.url)+'" download="'+e(video.filename)+'">動画をダウンロード</a>'+
+    (shareable?'<button class="secondary" type="button" data-action="share-video">共有・ファイルに保存</button>':'')+'</div>');
+}
+async function shareSavedVideo() {
+  if(!savedVideo) return;
+  try {await navigator.share({files:[new File([savedVideo.blob],savedVideo.filename,{type:savedVideo.blob.type})],title:'1日ルーレット'});savedVideo.saved=true;}
+  catch(error) {if(error.name!=='AbortError') throw new Error('共有できませんでした。動画のダウンロードをお試しください。');}
 }
 function renderMoney() {
   const {summary,expenses} = state;
@@ -369,6 +500,8 @@ function account() {
     '<button class="secondary" type="button" data-action="password">パスワードを変更</button><button class="secondary" type="button" data-action="logout">ログアウト</button></div>');
 }
 async function revealPerson(slot,item) {
+  await initAudio();
+  recordingFocusId=item;
   await api('reveal.open',{eventId,slotId:slot.id,userId:item},{retry:true});
   await refreshState(true);
 }
@@ -405,8 +538,9 @@ async function historyModal(slot) {
 async function doAction(button) {
   const action = button.dataset.action;
   const key = button.dataset.key;
-  const slot = state?.slots.find(item=>item.id===(['slot','plan','preview-plan'].includes(action)?key:slotId));
+  const slot = state?.slots.find(item=>item.id===(['slot','plan','preview-plan','preview-slot'].includes(action)?key:slotId));
   const expense = state?.expenses.find(item=>item.id===key);
+  if(['nav','back','slot','preview-slot','logout'].includes(action)) await finishRecording();
   switch (action) {
     case 'nav':
       if (key==='admin' && user.role!=='admin') return;
@@ -419,6 +553,11 @@ async function doAction(button) {
     case 'retry': return refreshEverything();
     case 'back': slotId = ''; render(); return;
     case 'slot': if (slot?.open) { slotId = slot.id; initAudio(); render(); } return;
+    case 'preview-slot': if(slot && !slot.open) previewSlot(slot); return;
+    case 'start-recording': return startRoomRecording(slot);
+    case 'stop-recording': return finishRecording();
+    case 'saved-video': return showSavedVideo();
+    case 'share-video': return shareSavedVideo();
     case 'share': {
       const shared = new URL(hosted ? window.ROULETTE_HOST : location.href);
       if (hosted) shared.searchParams.set('app','1');
@@ -459,6 +598,7 @@ async function doAction(button) {
   }
 }
 document.addEventListener('click',async event=>{
+  if(event.target.closest('a[data-video-download]') && savedVideo) savedVideo.saved=true;
   const button = event.target.closest('button[data-action],button[data-photo]');
   if (!button || button.disabled || !user) return;
   if (button.dataset.photo) { await showPhoto(button); return; }
@@ -469,8 +609,9 @@ document.addEventListener('click',async event=>{
     if (button.isConnected && (button.dataset.action==='reveal'||button.dataset.action==='delete-expense')) button.disabled = false;
   }
 });
-$('brand').onclick=()=>{
+$('brand').onclick=async()=>{
   if (!user) return renderLogin();
+  await finishRecording();
   view = 'day';
   slotId = '';
   render();
@@ -485,6 +626,9 @@ async function polling() {
 setInterval(polling,pollMs);
 document.addEventListener('visibilitychange',polling);
 window.addEventListener('online',polling);
+window.addEventListener('beforeunload',event=>{
+  if(recordingSession || recordingPending || (savedVideo && !savedVideo.saved)) {event.preventDefault();event.returnValue='';}
+});
 if (token() && configured) {
   try { await refreshHome(); render(); await refreshState(true); }
   catch (error) {
