@@ -4,6 +4,7 @@ import {editProposal,editExpense,userForm,eventForm,registrations,passwordForm} 
 import {wheel,colorAt,toggleSound,initAudio,soundOn,revealSound} from './wheel.js?v=20261120-ui2';
 import {startRecording,recordingSupported} from './recording.js?v=20261120-ui2';
 import {nameCandidates,nameSpin} from './names.js?v=20261120-finale1';
+import {missionTeaser,missionOpen,missionClaim,missionToggle,hideMission,missionRecapHtml,missionLoadRecap,missionRecapReset} from './missions.js?v=20261120-mission1';
 
 const main = $('main');
 const dialog = $('modal');
@@ -269,6 +270,7 @@ function render() {
     const selectedId=event.target.value;
     // Changing events also ends any recording before the next canvas appears.
     await finishRecording();
+    hideMission(true);missionRecapReset();
     eventId = selectedId;
     slotId = '';
     state = null;
@@ -284,7 +286,7 @@ function render() {
   else if (!state) page.innerHTML = '<div class="panel loading">イベントを読み込んでいます…</div>';
   else if (view==='plans') page.innerHTML = renderPlans();
   else if (view==='money') page.innerHTML = renderMoney();
-  else if (view==='overview') {page.innerHTML=renderOverview();void loadOverview();}
+  else if (view==='overview') {page.innerHTML=renderOverview();void loadOverview();if(state.missions?.enabled&&state.overview?.available)void missionLoadRecap(eventId,state.overview.finalDrawId,()=>{if(user&&view==='overview')render();});}
   else if (view==='names') {page.innerHTML=renderNames();wireNames();}
   else if (shownSlot) {
     page.innerHTML = renderRoom(shownSlot);
@@ -300,7 +302,7 @@ function render() {
   setSync(offline);
 }
 function renderDay() {
-  return (state.overview?.available?'<section class="panel overview-invite"><div><h2>今日の1日を並べて見よう</h2><p>採用された予定と、みんなが考えた1日の予定を一覧で見られます。</p></div><button class="primary" type="button" data-action="nav" data-key="overview">振り返りを見る</button></section>':'')+renderMeeting()+'<div class="section-head"><h2>当日の時間枠</h2><div class="spread"><span class="sync" id="sync-label"></span><button type="button" class="secondary" data-action="share">イベントURLをコピー</button></div></div>'+
+  return (state.missions?.enabled?missionTeaser():'')+(state.overview?.available?'<section class="panel overview-invite"><div><h2>今日の1日を並べて見よう</h2><p>採用された予定と、みんなが考えた1日の予定を一覧で見られます。</p></div><button class="primary" type="button" data-action="nav" data-key="overview">振り返りを見る</button></section>':'')+renderMeeting()+'<div class="section-head"><h2>当日の時間枠</h2><div class="spread"><span class="sync" id="sync-label"></span><button type="button" class="secondary" data-action="share">イベントURLをコピー</button></div></div>'+
     '<div class="stack">'+state.slots.map(slot=>{
       const spinning = activeSpin(slot);
       const result = !spinning && slot.winner;
@@ -355,7 +357,7 @@ function renderOverview() {
     if(!proposal) return '<p class="muted">'+(selected?'未抽選・抽選中・対象外':'未登録')+'</p>';
     return '<strong>'+e(proposal.title)+'</strong>'+(selected?'<p class="muted">'+e(proposal.name)+'</p>':'')+'<div class="rich-view overview-excerpt">'+richView(proposal.rich)+'</div><details><summary>詳細を見る</summary>'+proposalContent(proposal,slotId,false)+'</details>';
   }
-  return '<div class="section-head"><h1>振り返り</h1><span class="chip">全員の案を解放しました</span></div><section class="panel overview-scroll" tabindex="0" aria-label="1日の予定の比較表"><table class="overview-table"><thead><tr><th scope="col">時間</th><th scope="col" class="adopted">採用された1日</th>'+data.members.map(member=>'<th scope="col">'+e(member.name)+'の考えた1日</th>').join('')+'</tr></thead><tbody>'+data.slots.map(slot=>'<tr><th scope="row">'+e(hour(slot.start)+'〜'+hour(slot.end))+'<br>'+e(slot.title || '')+'</th><td class="adopted">'+cell(slot.selected,slot.id,true)+'</td>'+data.plans.map(member=>'<td>'+cell(member.proposals.find(p=>p.slotId===slot.id)?.proposal,slot.id)+'</td>').join('')+'</tr>').join('')+'</tbody></table></section>';
+  return '<div class="section-head"><h1>振り返り</h1><span class="chip">全員の案を解放しました</span></div><section class="panel overview-scroll" tabindex="0" aria-label="1日の予定の比較表"><table class="overview-table"><thead><tr><th scope="col">時間</th><th scope="col" class="adopted">採用された1日</th>'+data.members.map(member=>'<th scope="col">'+e(member.name)+'の考えた1日</th>').join('')+'</tr></thead><tbody>'+data.slots.map(slot=>'<tr><th scope="row">'+e(hour(slot.start)+'〜'+hour(slot.end))+'<br>'+e(slot.title || '')+'</th><td class="adopted">'+cell(slot.selected,slot.id,true)+'</td>'+data.plans.map(member=>'<td>'+cell(member.proposals.find(p=>p.slotId===slot.id)?.proposal,slot.id)+'</td>').join('')+'</tr>').join('')+'</tbody></table></section>'+(state.missions?.enabled?missionRecapHtml(eventId,state.overview.finalDrawId):'');
 }
 async function loadOverview() {
   if(!state?.overview?.available) {overviewCache=null;return;}
@@ -751,7 +753,7 @@ async function doAction(button) {
   const key = button.dataset.key;
   const slot = state?.slots.find(item=>item.id===(['slot','plan','preview-plan','unlock-slot'].includes(action)?key:slotId));
   const expense = state?.expenses.find(item=>item.id===key);
-  if(['nav','back','slot','unlock-slot','logout'].includes(action)) await finishRecording();
+  if(['nav','back','slot','unlock-slot','logout'].includes(action)) {hideMission(true);await finishRecording();}
   switch (action) {
     case 'nav':
       if (key==='admin' && user.role!=='admin') return;
@@ -764,6 +766,11 @@ async function doAction(button) {
       return;
     case 'retry': return refreshEverything();
     case 'overview-retry': overviewCache=null;render();return;
+    case 'mission-open': return missionOpen(eventId,user.id);
+    case 'mission-claim': return missionClaim(eventId,user.id);
+    case 'mission-toggle': return missionToggle(eventId,user.id,key,button.dataset.completed==='true');
+    case 'mission-hide': hideMission();return;
+    case 'mission-recap-retry': missionRecapReset();render();return;
     case 'name-spin': return runNameSpin();
     case 'back': slotId = ''; render(); return;
     case 'slot': if (slot?.open) { slotId = slot.id; initAudio(); render(); } return;
@@ -829,6 +836,7 @@ document.addEventListener('click',async event=>{
 $('brand').onclick=async()=>{
   if (!user) return renderLogin();
   await finishRecording();
+  hideMission(true);
   view = 'day';
   slotId = '';
   render();
