@@ -1,8 +1,8 @@
 import {api,configured,pollMs,passwordProof,setToken,token,uid} from './api.js';
 import {$,e,icon,yen,initials,hour,date,time,richView,safeUrl,photoButton,showPhoto,notify,modal,closeModal,bindForm,copyText,clearImages} from './ui.js';
 import {editProposal,editExpense,userForm,eventForm,registrations,passwordForm} from './forms.js?v=20261120-meeting9';
-import {wheel,colorAt,toggleSound,initAudio,soundOn,revealSound} from './wheel.js?v=20261120-finale1';
-import {startRecording,recordingSupported} from './recording.js?v=20261120-finale1';
+import {wheel,colorAt,toggleSound,initAudio,soundOn,revealSound} from './wheel.js?v=20261120-ui2';
+import {startRecording,recordingSupported} from './recording.js?v=20261120-ui2';
 import {nameCandidates,nameSpin} from './names.js?v=20261120-finale1';
 
 const main = $('main');
@@ -89,9 +89,9 @@ function eventAccess(selectedEvent = eventId) {
 function activeSpin(slot) { return slot.spin && !completedSpins.has(slot.spin.id) && now() < slot.spin.startAt+slot.spin.duration; }
 function spinFinished(spin) {if(spin){completedSpins.add(spin.id);if(completedSpins.size>100)completedSpins.delete(completedSpins.values().next().value);}render();if(spin && state?.slots.at(-1)?.spin?.id===spin.id)void refreshState(true);}
 function navButtons() {
-  const items = [['day','当日','calendar'],['plans','予定登録','pen'],['money','お金','wallet'],['names','名前ルーレット','users'],['overview','1日の予定','spark']];
+  const items = [['day','当日','calendar'],['plans','予定登録','pen'],['money','お金','wallet'],['names','ルーレット','users'],['overview','振り返り','spark']];
   if (user.role === 'admin') items.push(['admin','管理','settings']);
-  return '<nav class="nav" aria-label="メインメニュー">'+items.map(([key,name,symbol]) =>
+  return '<nav class="nav'+(user.role==='admin'?' nav--admin':'')+'" aria-label="メインメニュー">'+items.map(([key,name,symbol]) =>
     '<button type="button" data-action="nav" data-key="'+key+'" '+(key==='overview' && !state?.overview?.available?'disabled title="最後の時間枠の抽選後に解放"':'')+' '+(view===key?'aria-current="page"':'')+'>'+icon(symbol,18)+name+'</button>').join('')+'</nav>';
 }
 function updateUrl() {
@@ -300,7 +300,7 @@ function render() {
   setSync(offline);
 }
 function renderDay() {
-  return (state.overview?.available?'<section class="panel overview-invite"><div><h2>今日の1日を並べて見よう</h2><p>採用された予定と、みんなが考えた1日の予定を一覧で見られます。</p></div><button class="primary" type="button" data-action="nav" data-key="overview">1日の予定を見る</button></section>':'')+renderMeeting()+'<div class="section-head"><h2>当日の時間枠</h2><div class="spread"><span class="sync" id="sync-label"></span><button type="button" class="secondary" data-action="share">イベントURLをコピー</button></div></div>'+
+  return (state.overview?.available?'<section class="panel overview-invite"><div><h2>今日の1日を並べて見よう</h2><p>採用された予定と、みんなが考えた1日の予定を一覧で見られます。</p></div><button class="primary" type="button" data-action="nav" data-key="overview">振り返りを見る</button></section>':'')+renderMeeting()+'<div class="section-head"><h2>当日の時間枠</h2><div class="spread"><span class="sync" id="sync-label"></span><button type="button" class="secondary" data-action="share">イベントURLをコピー</button></div></div>'+
     '<div class="stack">'+state.slots.map(slot=>{
       const spinning = activeSpin(slot);
       const result = !spinning && slot.winner;
@@ -320,7 +320,7 @@ function renderMeeting() {
   const place=done?(m.place || m.spin.candidates.find(p=>p.userId===m.spin.winnerId)?.title):'';
   const names=m.members.map(member=>'<li class="'+(member.arrived?'arrived':'')+'">'+e(member.name)+'　'+(m.spin?(member.arrived?'到着済み':'到着待ち'):(member.registered?'登録済み':'登録待ち'))+'</li>').join('');
   return '<section class="panel meeting-panel"><div class="spread"><h2>集合場所ルーレット</h2><span class="chip">'+m.registered+' / '+m.total+' 登録</span></div>'+
-    '<p class="muted">全員の最初の予定がそろうと集合場所を決められます。ここでは集合場所だけを表示します。</p>'+
+    '<p class="muted">全員の最初の予定がそろうと集合場所を決められます。</p>'+
     recordingControls('meeting')+
     '<div class="spread"><span></span><button class="icon-btn" data-action="sound" type="button" aria-pressed="'+soundOn()+'" aria-label="集合場所ルーレット音">'+icon(soundOn()?'speaker':'mute')+'</button></div>'+
     (m.ready || m.spin?'<div class="meeting-wheel"><canvas id="meeting-wheel" width="520" height="520" aria-label="集合場所のルーレット"></canvas><svg id="meeting-pointer" class="pointer" viewBox="0 0 30 47" aria-hidden="true"><path d="M3 3h24L15 43Z" fill="#d84d40" stroke="#792c33" stroke-width="2"/></svg></div>':'')+
@@ -328,13 +328,14 @@ function renderMeeting() {
     (spinning?'<p role="status">集合場所を抽選しています…</p>':'')+
     '<div class="draw-actions"><button class="primary" type="button" data-action="meeting-spin" '+(!m.ready || spinning || pending || recordingPending?'disabled':'')+'>'+(m.spin?'集合場所を選び直す':'集合場所を決める')+'</button>'+
     (done && !m.needsReroll?'<button class="'+(m.myArrived?'secondary':'primary')+'" type="button" data-action="meeting-arrive" '+(m.myArrived || pending?'disabled':'')+'>'+(m.myArrived?'到着を確認しました':'集合場所に着いた')+'</button>':'')+'</div>'+
-    (m.allArrived?'<p class="first-plan-note">全員が到着しました。最初の時間枠を開き、名前をタップして予定を確認してください。</p>':'')+
     (m.needsReroll?'<p>選ばれた人が参加者から外れています。集合場所を選び直してください。</p>':'')+
     '<ul class="summary-list meeting-members">'+names+'</ul></section>';
 }
 function wireMeeting() {
   const m=state?.meeting;if(!m || !$('meeting-wheel')) return;
-  stoppedWheel=wheel($('meeting-wheel'),$('meeting-pointer'),m.spin?.candidates || m.candidates,m.spin,clock,()=>spinFinished(m.spin));
+  const memberNames=new Map(state.members.map(member=>[String(member.id),member.name]));
+  const people=(m.spin?.candidates || m.candidates).map(person=>({...person,name:memberNames.get(String(person.userId)) || person.name || '参加者',title:''}));
+  stoppedWheel=wheel($('meeting-wheel'),$('meeting-pointer'),people,m.spin,clock,()=>spinFinished(m.spin));
 }
 async function meetingAction(action) {
   const m=state.meeting;if(!m || pending || recordingPending || activeSpin(m)) return;
@@ -346,15 +347,15 @@ async function meetingAction(action) {
   } finally {pending=false;if(user)render();}
 }
 function renderOverview() {
-  if(!state.overview?.available) return '<section class="panel empty"><h1>1日の予定</h1><p>最後の時間枠のルーレットが終わると、今日の予定と全員の案を一覧で見られます。</p>'+(!state.overview?'<p>この機能を使うにはGASの更新が必要です。</p>':'')+'</section>';
+  if(!state.overview?.available) return '<section class="panel empty"><h1>振り返り</h1><p>最後の時間枠のルーレットが終わると、今日の予定と全員の案を一覧で見られます。</p>'+(!state.overview?'<p>この機能を使うにはGASの更新が必要です。</p>':'')+'</section>';
   const entry=overviewCache,key=eventId+':'+state.stamp;
-  if(entry?.key!==key || !entry.data) return '<section class="panel"><h1>1日の予定</h1><p role="status">'+e(entry?.key===key && entry.error?entry.error:'みんなの1日の予定を読み込んでいます…')+'</p>'+(entry?.error?'<button class="secondary" data-action="overview-retry">再読み込み</button>':'')+'</section>';
+  if(entry?.key!==key || !entry.data) return '<section class="panel"><h1>振り返り</h1><p role="status">'+e(entry?.key===key && entry.error?entry.error:'みんなの1日の予定を読み込んでいます…')+'</p>'+(entry?.error?'<button class="secondary" data-action="overview-retry">再読み込み</button>':'')+'</section>';
   const data=entry.data;
   function cell(proposal,slotId,selected=false) {
     if(!proposal) return '<p class="muted">'+(selected?'未抽選・抽選中・対象外':'未登録')+'</p>';
     return '<strong>'+e(proposal.title)+'</strong>'+(selected?'<p class="muted">'+e(proposal.name)+'</p>':'')+'<div class="rich-view overview-excerpt">'+richView(proposal.rich)+'</div><details><summary>詳細を見る</summary>'+proposalContent(proposal,slotId,false)+'</details>';
   }
-  return '<div class="section-head"><h1>今日の1日の予定</h1><span class="chip">全員の案を解放しました</span></div><p class="muted">時間帯ごとに、採用された予定と全員の案を並べています。横にスクロールでき、詳細も開けます。編集や再抽選は最新の内容を反映します。</p><section class="panel overview-scroll" tabindex="0" aria-label="1日の予定の比較表"><table class="overview-table"><thead><tr><th scope="col">時間</th><th scope="col" class="adopted">採用された1日</th>'+data.members.map(member=>'<th scope="col">'+e(member.name)+'の1日</th>').join('')+'</tr></thead><tbody>'+data.slots.map(slot=>'<tr><th scope="row">'+e(hour(slot.start)+'〜'+hour(slot.end))+'<br>'+e(slot.title || '')+'</th><td class="adopted">'+cell(slot.selected,slot.id,true)+'</td>'+data.plans.map(member=>'<td>'+cell(member.proposals.find(p=>p.slotId===slot.id)?.proposal,slot.id)+'</td>').join('')+'</tr>').join('')+'</tbody></table></section>';
+  return '<div class="section-head"><h1>振り返り</h1><span class="chip">全員の案を解放しました</span></div><section class="panel overview-scroll" tabindex="0" aria-label="1日の予定の比較表"><table class="overview-table"><thead><tr><th scope="col">時間</th><th scope="col" class="adopted">採用された1日</th>'+data.members.map(member=>'<th scope="col">'+e(member.name)+'の考えた1日</th>').join('')+'</tr></thead><tbody>'+data.slots.map(slot=>'<tr><th scope="row">'+e(hour(slot.start)+'〜'+hour(slot.end))+'<br>'+e(slot.title || '')+'</th><td class="adopted">'+cell(slot.selected,slot.id,true)+'</td>'+data.plans.map(member=>'<td>'+cell(member.proposals.find(p=>p.slotId===slot.id)?.proposal,slot.id)+'</td>').join('')+'</tr>').join('')+'</tbody></table></section>';
 }
 async function loadOverview() {
   if(!state?.overview?.available) {overviewCache=null;return;}
@@ -383,7 +384,7 @@ function namesData(config) {
 function renderNames() {
   const config=namesConfig(),busy=!!activeSpin(config),{candidates,total,error}=namesData(config);
   const winner=!busy && config.spin?.candidates.find(p=>p.userId===config.spin.winnerId);
-  return '<div class="section-head"><h1>名前ルーレット</h1><button class="icon-btn" data-action="sound" type="button" aria-pressed="'+soundOn()+'" aria-label="名前ルーレット音">'+icon(soundOn()?'speaker':'mute')+'</button></div><p class="muted">このイベントの参加者から選びます。結果はこの端末だけに表示し、予定の抽選には影響しません。</p><div class="two-col"><section class="panel"><h2>参加者と当たりやすさ</h2><label class="name-equal"><input id="name-equal" type="checkbox" '+(config.equal?'checked':'')+' '+(busy?'disabled':'')+'> 等倍（選んだ全員を同じ確率にする）</label><p class="muted">倍率は比率です。例：1倍と2倍なら、2倍の人が2倍当たりやすくなります。0倍は当たりません。</p><div class="name-choices">'+state.members.map(member=>{
+  return '<div class="section-head"><h1>ルーレット</h1><button class="icon-btn" data-action="sound" type="button" aria-pressed="'+soundOn()+'" aria-label="名前ルーレット音">'+icon(soundOn()?'speaker':'mute')+'</button></div><p class="muted">このイベントの参加者から選びます。結果はこの端末だけに表示し、予定の抽選には影響しません。</p><div class="two-col"><section class="panel"><h2>参加者と当たりやすさ</h2><label class="name-equal"><input id="name-equal" type="checkbox" '+(config.equal?'checked':'')+' '+(busy?'disabled':'')+'> 等倍（選んだ全員を同じ確率にする）</label><p class="muted">倍率は比率です。例：1倍と2倍なら、2倍の人が2倍当たりやすくなります。0倍は当たりません。</p><div class="name-choices">'+state.members.map(member=>{
     const choice=config.people.get(member.id),candidate=candidates.find(p=>p.userId===member.id);
     return '<div class="name-choice"><label><input type="checkbox" data-name-select="'+e(member.id)+'" '+(choice.selected?'checked':'')+' '+(busy?'disabled':'')+'> '+e(member.name)+'</label><label class="name-weight"><input type="number" data-name-weight="'+e(member.id)+'" aria-label="'+e(member.name)+'の倍率" min="0" max="1000" step="0.001" value="'+e(config.equal?'1':choice.weight)+'" '+(busy || config.equal || !choice.selected?'disabled':'')+'> 倍</label><output data-name-odds="'+e(member.id)+'">'+(total && candidate?(candidate.weight/total*100).toFixed(1):'0.0')+'%</output></div>';
   }).join('')+'</div><p class="form-error" id="name-error" role="alert">'+e(error || '')+'</p></section><section class="panel draw-panel"><h2>誰になるかな？</h2><div class="wheel-wrap"><canvas id="name-wheel" width="520" height="520" aria-label="名前ルーレットの円盤"></canvas><svg id="name-pointer" class="pointer" viewBox="0 0 30 47" aria-hidden="true"><path d="M3 3h24L15 43Z" fill="#d84d40" stroke="#792c33" stroke-width="2"/></svg></div><div id="name-result" role="status">'+(busy?'<p>ルーレットが回っています…</p>':winner?'<div class="first-plan-note"><span>今回選ばれたのは</span><h2>'+e(winner.name)+'</h2></div>':'')+'</div><button class="primary" data-action="name-spin" id="name-spin" '+(busy || !total || error?'disabled':'')+'>'+(busy?'抽選中':'ルーレットを回す')+'</button></section></div>';
@@ -481,7 +482,7 @@ function renderRoom(slot) {
     '<section class="panel draw-panel"><div class="spread"><h2>ルーレット</h2><button class="icon-btn" id="sound" data-action="sound" type="button" aria-pressed="'+soundOn()+'" aria-label="ルーレット音">'+icon(soundOn()?'speaker':'mute')+'</button></div>'+
     '<div class="wheel-wrap"><canvas id="wheel" width="520" height="520" aria-label="ルーレット円盤"></canvas>'+
     '<svg id="pointer" class="pointer" viewBox="0 0 30 47" aria-hidden="true"><path d="M3 3h24L15 43Z" fill="#d84d40" stroke="#792c33" stroke-width="2"/><path d="M8 7h14L15 30Z" fill="#f67d63"/></svg></div>'+
-    '<div class="draw-actions">'+(slot.meetingFirst?'<p class="first-plan-note">集合場所で選ばれた人の予定が、最初の予定です。選ばれなかった人の予定も名前をタップすると開示できます。</p>':'<button class="primary" id="spin" type="button" data-action="spin" '+(!ready || spinning || pending?'disabled':'')+'>'+
+    '<div class="draw-actions">'+(slot.meetingFirst?'':'<button class="primary" id="spin" type="button" data-action="spin" '+(!ready || spinning || pending?'disabled':'')+'>'+
     icon('bolt',17)+(spinning?'抽選中':slot.spin?'もう一度回す':'ルーレットを回す')+'</button>'+
     (hint?'<p class="muted">'+e(hint)+'</p>':'')+
     (slot.spin?'<button class="quiet" type="button" data-action="history" '+(spinning || roomRevealing.size?'disabled':'')+'>抽選履歴</button>':''))+'</div>'+
@@ -539,23 +540,20 @@ dialog.addEventListener('close',()=>{
 });
 function recordingControls(kind='room') {
   const active=!!recordingSession;
-  const supported=recordingSupported();
-  const meeting=kind==='meeting',available=!meeting || state?.meeting?.ready || state?.meeting?.spin;
-  const hint=active?(meeting?'集合場所の抽選結果が出たあとに自動停止します。画面を表示したまま操作してください。':state?.slots.find(s=>s.id===slotId)?.meetingFirst?'開示が終わったら「記録を終了して保存」を押してください。':'次の抽選結果が出たあとに自動停止します。画面を表示したまま操作してください。'):
-    !supported?'このブラウザは動画の作成に対応していません。':meeting?(available?'抽選前に記録を開始すると、集合場所のルーレット・結果・効果音を動画に残せます。予定の内容は映りません。':'全員が最初の予定と集合場所を登録すると、動画を記録できます。'):'開示前に開始すると、予定の文章・ルーレット・効果音を1本の縦長動画に残せます。';
-  return '<section class="panel recording-bar"><div><h2>'+(active?'<span class="record-dot"></span>動画を記録中':'思い出を動画に')+'</h2><p class="muted">'+
-    e(hint)+'</p></div>'+
-    '<button class="'+(active?'secondary':'primary')+'" type="button" data-action="'+(active?'stop-recording':meeting?'start-meeting-recording':'start-recording')+'" '+(!supported || !available || recordingPending?'disabled':'')+'>'+
-    (recordingPending?'準備中…':active?'記録を終了して保存':'記録開始')+'</button></section>';
+  const available=kind!=='meeting' || state?.meeting?.ready || state?.meeting?.spin;
+  return '<div class="recording-bar"><button class="'+(active?'secondary':'primary')+'" type="button" data-action="'+(active?'stop-recording':kind==='meeting'?'start-meeting-recording':'start-recording')+'" '+(!recordingSupported() || !available || recordingPending?'disabled':'')+'>'+ 
+    (recordingPending?'準備中…':active?'記録を終了して保存':'記録開始')+'</button></div>';
 }
 function recordFrame(context) {
   if(!user || eventId!==context.eventId || view!=='day') return null;
   if(context.kind==='meeting') {
     if(slotId || !state?.meeting) return null;
     const m=state.meeting,spinning=!!activeSpin(m);
-    // Build this frame only from public meeting locations. Never include plans, owners or arrival data.
-    const candidates=(m.spin?.candidates || m.candidates).map((person,i)=>({userId:person.userId,name:'集合場所 '+(i+1),title:person.title}));
-    const people=candidates.map(person=>({userId:person.userId,name:person.name,proposal:{title:person.title,rich:'',locations:[],links:[]}}));
+    // Show participant names on the wheel; disclose only the winning meeting place after it stops.
+    const memberNames=new Map(state.members.map(member=>[String(member.id),member.name]));
+    const originals=m.spin?.candidates || m.candidates;
+    const candidates=originals.map(person=>({userId:person.userId,name:memberNames.get(String(person.userId)) || person.name || '参加者',title:''}));
+    const people=originals.map((person,i)=>({userId:person.userId,name:candidates[i].name,proposal:{title:person.title,rich:'',locations:[],links:[]}}));
     const spin=m.spin?Object.fromEntries(['id','startAt','duration','turns','angle','winnerId','number'].map(key=>[key,m.spin[key]])):null;
     if(spin) spin.candidates=candidates;
     return {kind:'meeting-place',eventTitle:state.event.title,slotTitle:'集合場所ルーレット',people,spin,spinning,
