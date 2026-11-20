@@ -175,6 +175,7 @@ export async function startRecording({read,onReady,onError,onStop}) {
   let audio,stream,recorder,frameId,wake,videoTrack,reason='',cancelled=false,stopping=false,cleaned=false;
   let endSpin='',endAt=0,lastPaint=-Infinity,bytes=0;
   let origin=0,began=0,timeline,lastFrame=first,started=false,rejectStart;
+  let capturedFrames=0,recordedCues=0,mediaElapsed=0;
   const reduceMotion=globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches || false;
   const chunks=[];
   let resolveDone;
@@ -190,10 +191,12 @@ export async function startRecording({read,onReady,onError,onStop}) {
   function paintFrame(raw) {
     lastFrame=raw;
     const time=Math.max(0,timestamp()-origin);
+    mediaElapsed=time;capturedFrames++;
     const frame=timeline(raw,time);
     paint(frame,time);
     videoTrack?.requestFrame?.();
     for(const cue of frame.cues) audio?.[cue.kind]?.(cue.elapsed || 0);
+    recordedCues+=frame.cues.length;
     return frame;
   }
   function stop(message='') {
@@ -237,7 +240,7 @@ export async function startRecording({read,onReady,onError,onStop}) {
           const type=recorder.mimeType || chunks[0].type || mimeType || 'video/webm';
           const blob=new Blob(chunks,{type});
           const extension=type.includes('mp4')?'mp4':'webm';
-          onReady({blob,extension,reason});
+          onReady({blob,extension,reason,diagnostics:{capturedFrames,recordedCues,mediaElapsed,audio:!!audio,tracks:stream.getTracks().map(track=>track.kind)}});
         } else if(!cancelled) onError(new Error('動画データを作成できませんでした。もう一度お試しください。'));
       } finally {try{onStop?.();}finally{resolveDone();}}
     };

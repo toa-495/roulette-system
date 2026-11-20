@@ -23,12 +23,13 @@ button.onclick=async()=>{
       revealProgress:Object.fromEntries(people.map((person,i)=>[person.userId,Math.max(0,Math.min(1,(elapsed-1000-i*3000)/2400))]))};
   };
   try {
-    await startRecording({read,onReady:async({blob,extension})=>{
+    await startRecording({read,onReady:async({blob,extension,reason,diagnostics})=>{
       if(!wasOn) toggleSound();
       const url=URL.createObjectURL(blob);clip.src=url;
       const download=document.getElementById('download');download.href=url;download.download='recording-check.'+extension;download.hidden=false;
       try {
         await new Promise((resolve,reject)=>{clip.onloadedmetadata=resolve;clip.onerror=reject;});
+        if(!Number.isFinite(clip.duration) || clip.duration<15) throw new Error('再生時間が短すぎます：'+clip.duration+'秒 / '+reason+' / '+JSON.stringify(diagnostics));
         const canvas=document.createElement('canvas');canvas.width=720;canvas.height=1280;const g=canvas.getContext('2d');
         const checks=[];
         for(const time of [.2,2,5,8,12,14]) {
