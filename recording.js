@@ -1,4 +1,4 @@
-import {recordingAudio,createWheelRenderer,spinPosition} from './wheel.js?v=20261120-video5';
+import {recordingAudio,createWheelRenderer,spinPosition} from './wheel.js?v=20261120-layout6';
 
 export function recordingMime(Recorder = globalThis.MediaRecorder) {
   if (!Recorder) return '';
@@ -62,14 +62,13 @@ export function recordingTimeline(first,reduceMotion = false) {
 }
 function painter(canvas) {
   const ctx=canvas.getContext('2d');
-  const layer=document.createElement('canvas');layer.width=648;
+  const layer=document.createElement('canvas');
   const text=layer.getContext('2d');
   const mosaic=document.createElement('canvas');
-  const titleLayer=document.createElement('canvas');
   const disk=document.createElement('canvas');
   let paintWheel,wheelKey='';
-  const fitted=new Map();
-  let focused='',focusAt=0,cachedKey='',cachedLines=[];
+  const fitted=new Map(),bodies=new Map(),opened=new Map();
+  const ink='#242734',soft='#555b67',paper='#f6f5ef',white='#fffefb',line='#e2e0d7';
   function fit(g,value,width) {
     const key=g.font+':'+width+':'+value;
     if(fitted.has(key)) return fitted.get(key);
@@ -92,76 +91,104 @@ function painter(canvas) {
     } else ctx.drawImage(source,x,y,width,height);
     ctx.restore();
   }
-  function write(value,x,y,width,font,color,max=2) {
-    ctx.font=font;ctx.fillStyle=color;
-    const wrapped=lines(ctx,value,width);
-    wrapped.slice(0,max).forEach((line,i)=>ctx.fillText(line+(i===max-1 && wrapped.length>max?'…':''),x,y+i*38));
+  function box(x,y,width,height,radius,fill,stroke=line) {
+    const r=Math.min(radius,width/2,height/2);
+    ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+width-r,y);
+    ctx.quadraticCurveTo(x+width,y,x+width,y+r);ctx.lineTo(x+width,y+height-r);
+    ctx.quadraticCurveTo(x+width,y+height,x+width-r,y+height);ctx.lineTo(x+r,y+height);
+    ctx.quadraticCurveTo(x,y+height,x,y+height-r);ctx.lineTo(x,y+r);
+    ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath();ctx.fillStyle=fill;ctx.fill();
+    if(stroke) {ctx.strokeStyle=stroke;ctx.lineWidth=1.6;ctx.stroke();}
+  }
+  function write(value,x,y,width,size=24,color=ink,weight=600) {
+    ctx.font=weight+' '+size+'px system-ui,sans-serif';ctx.fillStyle=color;
+    ctx.fillText(fit(ctx,value,width),x,y);
+  }
+  function body(proposal,width,size) {
+    const key=JSON.stringify([proposal?.title,proposal?.rich,proposal?.locations,proposal?.links,width,size]);
+    if(!bodies.has(key)) {
+      text.font='400 '+size+'px system-ui,sans-serif';
+      const content=proposal?[plain(proposal.rich),...(proposal.locations || []),...(proposal.links || [])].filter(Boolean).join('\n'):'';
+      if(bodies.size>100) bodies.clear();bodies.set(key,lines(text,content,width));
+    }
+    return bodies.get(key);
+  }
+  function content(person,x,y,width,height,progress,at,{size=24,titleOffset=0,compact=false}={}) {
+    layer.width=Math.floor(width);layer.height=Math.max(1,Math.floor(height));
+    text.textBaseline='top';text.fillStyle=ink;
+    text.font='700 '+size+'px system-ui,sans-serif';
+    text.fillText(fit(text,person.proposal?.title || '未開示',width-titleOffset),titleOffset,0);
+    if(!compact) {
+      const descSize=Math.max(15,size-2),descY=size+16;
+      const wrapped=body(person.proposal,width,descSize);
+      const key=JSON.stringify([person.userId,person.openedAt || 0,person.proposal?.title,person.proposal?.rich]);
+      if(!opened.has(key)) opened.set(key,at);
+      const available=Math.max(0,height-descY),lineHeight=descSize+8;
+      const overflow=Math.max(0,wrapped.length*lineHeight-available);
+      const scroll=Math.min(overflow,Math.max(0,at-opened.get(key)-4000)*.025);
+      text.font='400 '+descSize+'px system-ui,sans-serif';
+      text.save();text.beginPath();text.rect(0,descY,width,available);text.clip();
+      wrapped.forEach((value,i)=>text.fillText(value,0,descY+i*lineHeight-scroll));text.restore();
+    }
+    showLayer(layer,x,y,width,height,person.proposal?progress:1);
   }
   return (frame,at)=>{
-    ctx.fillStyle='#f6f5ef';ctx.fillRect(0,0,720,1280);
-    ctx.textBaseline='top';
-    write(frame.eventTitle,36,24,648,'800 28px system-ui,sans-serif','#212538',1);
-    write(frame.slotTitle,36,68,648,'600 23px system-ui,sans-serif','#676b70',1);
-    const columns=frame.people.length<=1?1:frame.people.length<=8?2:3;
+    ctx.fillStyle=paper;ctx.fillRect(0,0,720,1280);ctx.textBaseline='top';
+    write(frame.eventTitle,32,24,656,30,ink,800);write(frame.slotTitle,32,68,656,22,soft,400);
+    let top=112;
+    // Match the normal room: a separate result card, everyone's cards, then the wheel.
+    if(frame.winner) {
+      box(24,top,672,178,32,'#fbefce','#e7d5ab');
+      box(48,top+18,218,36,18,'#f2d48a',null);
+      ctx.beginPath();ctx.moveTo(66,top+24);ctx.quadraticCurveTo(68,top+34,77,top+36);
+      ctx.quadraticCurveTo(68,top+38,66,top+48);ctx.quadraticCurveTo(64,top+38,55,top+36);
+      ctx.quadraticCurveTo(64,top+34,66,top+24);ctx.strokeStyle='#493c29';ctx.lineWidth=1.5;ctx.stroke();
+      write('採用された予定',85,top+25,176,22,'#493c29',700);
+      write(frame.winner.name,48,top+65,624,20,soft,400);
+      content(frame.winner,48,top+91,624,76,frame.revealProgress?.[frame.winner.userId] ?? 1,at,{size:25});
+      top+=198;
+    }
+    const columns=frame.people.length<=1?1:frame.people.length<=4?2:3;
     const rows=Math.max(1,Math.ceil(frame.people.length/columns));
-    const cellHeight=Math.min(78,Math.floor(264/rows));
-    const cellWidth=(672-(columns-1)*8)/columns;
+    const rowHeight=frame.people.length<=2?190:Math.min(144,Math.floor(304/rows));
+    const panelHeight=100+rows*rowHeight;
+    box(24,top,672,panelHeight,32,white);
+    write('みんなの予定',48,top+25,400,32,ink,800);
+    const count=frame.people.filter(item=>item.proposal).length;
+    box(520,top+24,152,39,20,'#e3eddf',null);
+    write(count+' / '+frame.people.length+' 開示',536,top+34,128,20,'#334734',700);
+    const cellWidth=(624-(columns-1)*16)/columns;
     for(const [index,person] of frame.people.entries()) {
-      const x=24+(index%columns)*(cellWidth+8),y=116+Math.floor(index/columns)*cellHeight;
-      const compact=cellHeight<46;
-      const boxHeight=cellHeight-(compact?2:5);
-      ctx.fillStyle=frame.winner?.userId===person.userId?'#f6df9f':'#fffdf7';
-      ctx.fillRect(x,y,cellWidth,boxHeight);
-      ctx.strokeStyle='#d8dbd2';ctx.lineWidth=1;ctx.strokeRect(x,y,cellWidth,boxHeight);
-      const nameSize=compact?Math.max(9,Math.min(12,Math.floor(cellHeight*.37))):Math.min(21,Math.floor(cellHeight*.32));
-      const titleSize=compact?Math.max(9,Math.min(11,Math.floor(cellHeight*.34))):Math.min(18,Math.floor(cellHeight*.28));
-      const pad=compact?1:Math.min(9,cellHeight*.1);
-      ctx.fillStyle='#24334a';ctx.font='700 '+nameSize+'px system-ui,sans-serif';
-      ctx.fillText(fit(ctx,person.name,cellWidth-16),x+8,y+pad);
-      const titleY=y+pad+nameSize+(compact?1:4);
-      titleLayer.width=Math.floor(cellWidth-16);titleLayer.height=titleSize+(compact?2:4);
-      const g=titleLayer.getContext('2d');g.textBaseline='top';g.font='600 '+titleSize+'px system-ui,sans-serif';g.fillStyle='#24334a';
-      g.fillText(fit(g,person.proposal?.title || '未開示',cellWidth-16),0,0);
-      showLayer(titleLayer,x+8,titleY,titleLayer.width,titleLayer.height,person.proposal?frame.revealProgress[person.userId] ?? 1:1);
+      const x=48+index%columns*(cellWidth+16),y=top+76+Math.floor(index/columns)*rowHeight;
+      const compact=rowHeight<68,height=rowHeight-(compact?3:12);
+      box(x,y,cellWidth,height,compact?9:24,white);
+      if(compact) {
+        write(person.name,x+8,y+4,cellWidth-16,Math.max(10,Math.min(16,rowHeight*.32)),ink,700);
+        content(person,x+8,y+rowHeight*.48,cellWidth-16,Math.max(8,height-rowHeight*.48-2),frame.revealProgress?.[person.userId] ?? 1,at,{size:Math.max(9,Math.min(14,rowHeight*.29)),compact:true});
+      } else {
+        const size=columns===3?20:rowHeight>160?27:rowHeight>100?23:18;
+        const radius=columns===3?16:rowHeight>100?23:16,nameX=columns===3?x+60:x+24+radius*2+12;
+        ctx.beginPath();ctx.arc(x+20+radius,y+20+radius,radius,0,Math.PI*2);ctx.fillStyle='#ede8cc';ctx.fill();
+        write(Array.from(person.name)[0] || '',x+20+radius-size*.38,y+20+radius-size*.5,size,size,ink,700);
+        write(person.name,nameX,y+(rowHeight<120?12:20),cellWidth-(nameX-x)-16,size,ink,700);
+        const contentY=rowHeight<120?34:54;
+        content(person,x+20,y+contentY,cellWidth-40,height-contentY-12,frame.revealProgress?.[person.userId] ?? 1,at,{size:rowHeight>160?26:rowHeight>=120?21:16,titleOffset:nameX-x-20,compact:rowHeight<100});
+      }
     }
-    const detailY=116+rows*cellHeight+12;
-    const detailHeight=622-detailY;
-    const person=frame.winner || frame.people.find(item=>item.userId===frame.focusId) || frame.people.find(item=>item.proposal) || frame.people[0];
-    const proposal=person?.proposal;
-    const key=person?.userId || '';
-    const focusKey=key+':'+!!frame.winner;
-    if (focusKey!==focused) {focused=focusKey;focusAt=at;cachedKey='';}
-    ctx.fillStyle=frame.winner?'#fbefce':'#fffdf7';ctx.fillRect(24,detailY,672,detailHeight);
-    write(frame.winner?'決定：'+person.name+' さん':person?person.name+' さんの予定':'みんなの予定',40,detailY+9,630,'800 24px system-ui,sans-serif','#24334a',1);
-    const layerHeight=Math.floor(detailHeight-48);
-    if(layer.height!==layerHeight) layer.height=layerHeight;
-    text.clearRect(0,0,648,layerHeight);text.textBaseline='top';text.fillStyle='#212538';
-    let font=30,title;
-    do {text.font='800 '+font+'px system-ui,sans-serif';title=lines(text,proposal?.title || '名前をタップして予定を開示',620);if(title.length*(font+6)<layerHeight*.6 || font<=20) break;font-=2;} while(true);
-    title.forEach((value,i)=>text.fillText(value,8,i*(font+6)));
-    const descY=title.length*(font+6)+12;
-    text.font='400 24px system-ui,sans-serif';
-    const contentKey=proposal?JSON.stringify([proposal.id,proposal.revision,proposal.title,proposal.rich,proposal.locations,proposal.links,layerHeight]):'';
-    if(contentKey!==cachedKey) {
-      cachedKey=contentKey;focusAt=at;
-      const body=proposal?[plain(proposal.rich),...(proposal.locations || []),...(proposal.links || [])].filter(Boolean).join('\n'):'';
-      cachedLines=lines(text,body,620);
-    }
-    text.save();text.beginPath();text.rect(0,descY,648,Math.max(0,layerHeight-descY));text.clip();
-    const overflow=Math.max(0,cachedLines.length*33-(layerHeight-descY));
-    const scroll=Math.min(overflow,Math.max(0,at-focusAt-4000)*.025);
-    cachedLines.forEach((value,i)=>text.fillText(value,8,descY+i*33-scroll));text.restore();
-    const progress=proposal?Math.max(0,Math.min(1,frame.revealProgress?.[key] ?? 1)):1;
-    showLayer(layer,36,detailY+43,648,layerHeight,progress);
+    const wheelY=top+panelHeight+20;
+    const wheelSize=Math.min(640,1188-wheelY-80);
+    box(24,wheelY,672,wheelSize+80,32,'#e9ede3');
+    write('ルーレット',48,wheelY+24,390,30,ink,800);
+    if(frame.spinning || frame.winner) write(frame.spinning?'抽選中…':'決定！',532,wheelY+29,140,22,'#334734',700);
     const signature=JSON.stringify(frame.wheelCandidates);
     if(signature!==wheelKey) {paintWheel=createWheelRenderer(disk,frame.wheelCandidates,1);wheelKey=signature;}
     paintWheel(frame.turns);
-    ctx.drawImage(disk,100,654,520,520);
-    ctx.fillStyle='#d84d40';ctx.strokeStyle='#792c33';ctx.lineWidth=3;
-    ctx.beginPath();ctx.moveTo(343,655);ctx.lineTo(377,655);ctx.lineTo(360,700);ctx.closePath();ctx.fill();ctx.stroke();
-    const count=frame.people.filter(item=>item.proposal).length;
-    write(frame.winner?'決定！':frame.spinning?'ルーレット抽選中…':count+' / '+frame.people.length+' 件 開示',36,1184,648,'800 29px system-ui,sans-serif','#24334a',1);
-    write('1日ルーレット',36,1234,648,'400 20px system-ui,sans-serif','#676b70',1);
+    const diskX=(720-wheelSize)/2,diskY=wheelY+62;
+    ctx.drawImage(disk,diskX,diskY,wheelSize,wheelSize);
+    const pointerY=diskY+wheelSize*28/520;
+    ctx.fillStyle='#e47757';ctx.strokeStyle='#792c33';ctx.lineWidth=4;
+    ctx.beginPath();ctx.moveTo(343,pointerY-9);ctx.lineTo(377,pointerY-9);ctx.lineTo(360,pointerY+40);ctx.closePath();ctx.fill();ctx.stroke();
+    write('1日ルーレット',32,1234,656,20,soft,400);
   };
 }
 
