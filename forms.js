@@ -148,13 +148,16 @@ function bindPhoto(existing, request) {
 
 export function editProposal(eventId,slot,user,done) {
   const data = slot.mine;
+  const first=slot.meetingFirst;
+  const meetingHint='集合場所に使います。\n最寄駅集合の場合は、〇駅\nのようにご記入ください。最寄り駅でなくても大丈夫です。\n駅から遠い場合は、目的地が分からないように場所を示してください。';
   modal(data ? '自分の予定を編集' : '自分の予定を登録',
     '<p class="muted">'+e(hour(slot.start)+'〜'+hour(slot.end))+'</p><form id="edit-proposal">'+
     field('タイトル',input('title',data?.title,'required maxlength="100"'),required)+
     '<div class="fields"><span id="editor-label" class="label">説明'+required+'</span><div class="editor-frame">'+toolbar()+
     '<div id="editor" class="editor" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="editor-label" aria-required="true">'+richView(data?.rich)+'</div></div>'+
     '<div><button id="preview-rich" class="secondary" type="button">書式をプレビュー</button></div><div id="rich-preview" class="rich-view panel" hidden></div></div>'+
-    field('場所候補（1行につき1件）',textArea('locations',data?.locations.join('\n'),'rows="2"'),optional)+
+    (first?'<div class="fields"><span class="label">集合場所'+required+' <span class="info-help"><button type="button" class="info-mark" aria-label="集合場所の書き方" aria-describedby="meeting-help">ⓘ</button><span class="info-tooltip" id="meeting-help" role="tooltip">'+e(meetingHint)+'</span></span></span>'+input('locations',data?.locations?.[0] || '', 'required maxlength="180" placeholder="例：〇駅の改札前"')+'</div>':
+      field('場所候補（1行につき1件）',textArea('locations',data?.locations.join('\n'),'rows="2"'),optional))+
     field('参考URL（1行につき1件）',textArea('links',data?.links.join('\n'),'rows="2"'),optional)+photoField('参考画像')+submit()+'</form>');
   bindEditor();
   const getPhoto = bindPhoto(data?.image,{eventId,slotId:slot.id,userId:user.id,kind:'proposal',key:data?.image});
@@ -162,6 +165,7 @@ export function editProposal(eventId,slot,user,done) {
   bindForm('edit-proposal', async form => {
     const f = new FormData(form);
     if (!($('editor').textContent || '').replace(/[\s\u200b-\u200d\ufeff]/gu,'')) throw new Error('説明を入力してください。');
+    if(first && !String(f.get('locations') || '').trim()) throw new Error('集合場所を入力してください。');
     await api('proposal.save',{eventId,slotId:slot.id,revision:data?.revision || 0,title:f.get('title'),rich:$('editor').innerHTML,
       locations:lines(f.get('locations')),links:lines(f.get('links')),photo:await getPhoto()},{requestId:request,retry:true});
     closeModal();

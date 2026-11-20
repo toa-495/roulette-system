@@ -1,4 +1,4 @@
-import {recordingAudio,createWheelRenderer,spinPosition} from './wheel.js?v=20261120-layout6';
+import {recordingAudio,createWheelRenderer,spinPosition} from './wheel.js?v=20261120-meeting8';
 
 export function recordingMime(Recorder = globalThis.MediaRecorder) {
   if (!Recorder) return '';
@@ -45,6 +45,7 @@ export function recordingTimeline(first,reduceMotion = false) {
       if(currentSpin?.id!==frame.spin.id) {
         const elapsed=Number.isFinite(frame.serverNow)?frame.serverNow-frame.spin.startAt:(frame.spinning?0:frame.spin.duration);
         currentSpin={id:frame.spin.id,at,elapsed,lastTick:-1,lastSound:-Infinity,finished:elapsed>=frame.spin.duration};
+        if(elapsed<frame.spin.duration) cues.push({kind:'roll',elapsed:elapsed/1000,duration:frame.spin.duration/1000});
       }
       pose=spinPosition(frame.spin,currentSpin.elapsed+at-currentSpin.at,reduceMotion);
       const tick=Math.floor(pose.turns*frame.spin.candidates.length);
@@ -55,7 +56,7 @@ export function recordingTimeline(first,reduceMotion = false) {
       if(pose.progress===1 && !currentSpin.finished) {cues.push({kind:'finish'});currentSpin.finished=true;}
     }
     const winner=frame.spin && pose.progress===1?frame.people.find(person=>person.userId===frame.spin.winnerId && person.proposal) || frame.winner:null;
-    const candidates=frame.spin?frame.spin.candidates:frame.people.map(person=>({userId:person.userId,name:person.name,title:person.proposal?.title || '未開示'}));
+    const candidates=frame.spin?frame.spin.candidates.map(person=>frame.spin.kind==='meeting'?{...person,title:frame.people.find(p=>p.userId===person.userId)?.proposal?.title || '未開示'}:person):frame.people.map(person=>({userId:person.userId,name:person.name,title:person.proposal?.title || '未開示'}));
     return {...frame,winner,spinning:!!frame.spin && pose.progress<1,revealProgress:progress,turns:pose.turns,cues,
       wheelCandidates:candidates.map(person=>({...person,title:progress[person.userId]===undefined || progress[person.userId]>=1?person.title:frame.people.find(item=>item.userId===person.userId)?.proposal?'開示中…':'未開示'}))};
   };
@@ -222,7 +223,7 @@ export async function startRecording({read,onReady,onError,onStop}) {
     const frame=timeline(raw,time);
     paint(frame,time);
     videoTrack?.requestFrame?.();
-    for(const cue of frame.cues) audio?.[cue.kind]?.(cue.elapsed || 0);
+    for(const cue of frame.cues) audio?.[cue.kind]?.(cue.elapsed || 0,cue.duration);
     recordedCues+=frame.cues.length;
     return frame;
   }

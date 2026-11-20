@@ -1,0 +1,43 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>集合場所と開示の動作確認</title><link rel="stylesheet" href="../style.css?v=20261120-meeting8">
+<style>.demo-banner{padding:14px max(16px,calc((100% - 1080px)/2));background:#e3eddf;font-size:14px}.demo-banner label{display:block;margin-top:6px}.demo-banner input{width:auto}</style>
+<div class="demo-banner">架空データの動作確認です。実際のアカウント・スプレッドシートには接続しません。他の2人は抽選後に到着済みとして進みます。
+<label><input type="checkbox" id="fail-next"> 次の開示を保存失敗にして、元の表示に戻ることを確認する</label></div>
+<header><button class="brand" id="brand"><span class="brand-wheel"></span>1日ルーレット</button><div id="top-actions"></div></header>
+<main id="main"></main><dialog id="modal"><div id="modal-body"></div></dialog><div id="notice" role="status" aria-live="polite"></div>
+<script>
+const people=[{id:'demo_a',name:'あき'},{id:'demo_b',name:'はる'},{id:'demo_c',name:'そら'}];
+const plans=people.map((p,i)=>({id:'first:'+p.id,userId:p.id,title:['森の散歩','湖畔のカフェ','美術館へ行こう'][i],rich:'<p>'+['木漏れ日の中を歩きます。','ゆっくりお茶を楽しみます。','気になる展示を見に行きます。'][i]+'</p>',locations:['〇駅の東口','△駅の改札前','□公園の時計台'][i].split('\n'),links:[],image:'',revision:1}));
+const event={id:'demo_event',title:'集合と開示の動作確認',date:'2026-11-20',start:Date.now()+3600000,end:Date.now()+10800000};
+let spin=null,arrived=false;const revealed=new Map();
+const isDone=()=>spin && Date.now()>=spin.startAt+spin.duration;
+function state(){
+ const all=!!isDone() && arrived;
+ const members=people.map((p,i)=>({...p,registered:true,arrived:!!isDone() && (i<2 || arrived)}));
+ const props=all?plans.map(p=>({userId:p.userId,name:people.find(x=>x.id===p.userId).name,openedAt:revealed.get(p.userId) || 0,proposal:revealed.has(p.userId)?p:null})):[];
+ const planSpin=all?{...spin,kind:'meeting',winnerId:'demo_b',candidates:plans.map(p=>({userId:p.userId,name:people.find(x=>x.id===p.userId).name,title:revealed.has(p.userId)?p.title:'未開示'}))}:null;
+ return {stamp:'demo_'+Date.now(),event,members:people,summary:{total:0,balances:[],transfers:[]},expenses:[],
+ meeting:{slotId:'demo_first',ready:true,registered:3,total:3,members,allArrived:all,myArrived:arrived,needsReroll:false,
+ place:isDone()?'△駅の改札前':'',selectedUserId:all?'demo_b':'',spin,candidates:plans.map((p,i)=>({userId:'choice_'+i,name:'集合場所 '+(i+1),title:p.locations[0]}))},
+ slots:[{id:'demo_first',title:'最初の予定',start:event.start,end:event.start+3600000,open:all,openAt:event.start,firstSlot:true,meetingFirst:true,meetingRoundId:spin?.id || '',editable:true,mine:plans[2],people:props,contentVersion:'demo-content',registration:all?3:null,spin:planSpin,winner:all && revealed.has('demo_b')?{name:'はる',...plans[1]}:null},
+ {id:'demo_second',title:'次の予定',start:event.start+3600000,end:event.end,open:false,openAt:event.start+3600000,editable:true,mine:null,people:[],registration:null,spin:null,winner:null}]};
+}
+function route(action,p){
+ if(action==='home')return {user:{id:'demo_c',name:'そら',role:'member',username:'demo'},events:[event]};
+ if(action==='ping')return {ready:true,version:5};
+ if(action==='event.get')return state();
+ if(action==='meeting.spin') {spin={id:'demo_spin_'+Date.now(),kind:'meeting',winnerId:'choice_1',number:1,createdAt:Date.now(),startAt:Date.now()+350,duration:7500,turns:8,angle:.5,candidates:plans.map((p,i)=>({userId:'choice_'+i,name:'集合場所 '+(i+1),title:p.locations[0]}))};arrived=false;revealed.clear();return state();}
+ if(action==='meeting.arrive'){arrived=true;return state();}
+ if(action==='room.prepare')return {eventId:event.id,slotId:'demo_first',contentVersion:'demo-content',lastSpinId:spin.id,proposals:plans,initialDraw:null};
+ if(action==='reveal.open'){
+   if(document.getElementById('fail-next').checked){document.getElementById('fail-next').checked=false;const e=new Error('保存失敗のデモです。表示を元に戻しました。');e.code='DEMO_ERROR';throw e;}
+   revealed.set(p.userId,Date.now());const proposal=plans.find(x=>x.userId===p.userId);
+   return {openedAt:revealed.get(p.userId),proposalRevision:proposal.revision,contentVersion:'demo-content',proposal:p.knownRevision===proposal.revision?null:proposal};
+ }
+ if(action==='proposal.save'){Object.assign(plans[2],p,{revision:plans[2].revision+1});return plans[2];}
+ if(action==='draw.history')return [];
+ throw new Error('このデモでは使わない操作です。');
+}
+window.google={script:{run:{withSuccessHandler(fn){this.ok=fn;return this;},withFailureHandler(fn){this.fail=fn;return this;},rpc(request){const done=this.ok;setTimeout(()=>{try{done({ok:true,data:route(request.action,request.payload),serverTime:Date.now()});}catch(e){done({ok:false,code:e.code || 'DEMO_ERROR',message:e.message,serverTime:Date.now()});}},request.action==='reveal.open'?1800:200);}}}};
+sessionStorage.setItem('roulette.session:'+location.pathname,'fictional-demo-session');
+</script><script type="module" src="../app.js?v=20261120-meeting8"></script></html>

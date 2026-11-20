@@ -4,10 +4,10 @@
 <style>[hidden]{display:none!important}body{font:16px/1.7 system-ui,sans-serif;max-width:740px;margin:32px auto;padding:0 20px;color:#24334a;background:#f6f5ef}button,a{display:inline-block;padding:12px 18px;border:1px solid #274a61;border-radius:12px;background:#274a61;color:white}video{width:100%;max-height:65vh;display:block;margin-top:20px}#status{white-space:pre-wrap}small{display:block;margin:15px 0}</style>
 <h1>録画の動作確認</h1><p>架空の予定で、丸いカード枠と保存動画の効果音を確認します。アカウントや予定データには接続しません。</p>
 <label>参加人数 <select id="people"><option value="1">1人（短いタイトルと説明）</option><option value="3" selected>3人（複数のカード）</option></select></label><br>
-<button id="run">テスト動画を作成</button><p id="status" role="status">開始すると約15〜25秒で結果を表示します。（録画レイアウト v6.1）</p><video id="clip" controls playsinline hidden></video><a id="download" hidden>テスト動画を保存</a>
+<button id="run">テスト動画を作成</button><p id="status" role="status">開始すると約15〜25秒で結果を表示します。（集合・効果音 v8）</p><video id="clip" controls playsinline hidden></video><a id="download" hidden>テスト動画を保存</a>
 <script type="module">
-import {startRecording} from '../recording.js?v=20261120-layout6';
-import {soundOn,toggleSound} from '../wheel.js?v=20261120-layout6';
+import {startRecording} from '../recording.js?v=20261120-meeting8';
+import {soundOn,toggleSound} from '../wheel.js?v=20261120-meeting8';
 const button=document.getElementById('run'),status=document.getElementById('status'),clip=document.getElementById('clip');
 button.onclick=async()=>{
   const count=Number(document.getElementById('people').value);

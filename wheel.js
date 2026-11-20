@@ -3,6 +3,8 @@ const colors = ['#e47757','#f0bb4b','#77ae91','#7c93dc','#b76ca3','#5cb8c1','#ee
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 let sound = localStorage.getItem('roulette.sound') !== 'off';
 let context;
+let snareBuffer;
+const rollGates=new Set(),liveRolls=new Map();
 
 export const soundOn = () => sound;
 export async function initAudio(force = false) {
@@ -19,6 +21,7 @@ export async function recordingAudio() {
   if (!context || context.state !== 'running') return null;
   const output = context.createMediaStreamDestination();
   const sources=new Set();
+  const rolls=[];
   const silence=context.createConstantSource?.();
   if(silence) {silence.offset.value=0;silence.connect(output);silence.start();}
   // A recording gets only cues produced by its own timeline, never live UI cues.
@@ -28,34 +31,63 @@ export async function recordingAudio() {
     reveal:elapsed=>revealSound(output,elapsed,sources),
     tick:()=>clickSound(false,output,sources),
     finish:()=>clickSound(true,output,sources),
-    close(){for(const source of sources){try{source.stop();}catch{}}sources.clear();if(silence){silence.stop();silence.disconnect();}output.disconnect();output.stream.getTracks().forEach(track=>track.stop());}
+    roll:(elapsed,duration)=>{const roll=drumRoll(output,elapsed,duration,sources);if(roll)rolls.push(roll);},
+    close(){for(const roll of rolls)roll.stop();for(const source of sources){try{source.stop();}catch{}}sources.clear();if(silence){silence.stop();silence.disconnect();}output.disconnect();output.stream.getTracks().forEach(track=>track.stop());}
   };
 }
 export function revealSound(output = null,elapsed = 0,sources = null) {
   if (!sound || !context || context.state !== 'running') return;
-  for (const [i,frequency] of [392,494,587,784,988].entries()) {
-    const delay=i*.34-elapsed;
+  // An original ascending flourish and a bright major chord, synthesized locally.
+  for (const [i,frequency] of [587.33,739.99,880,1174.66,1479.98].entries()) {
+    const delay=[0,.12,.24,.38,.38][i]-elapsed,duration=i<3?.3:.9;
     const age=Math.max(0,-delay);
-    if(age>=.55) continue;
+    if(age>=duration) continue;
+    for(const [partial,peak] of [[1,.085],[2,.024]]) {
     const oscillator = context.createOscillator();
     const gain = context.createGain();
     const at = context.currentTime + Math.max(0,delay) + (output?1/24:0);
-    oscillator.type = 'sine';
-    oscillator.frequency.setValueAtTime(frequency,at);
-    const level=age<.025?.001*Math.pow(90,age/.025):.09*Math.pow(.001/.09,(age-.025)/.525);
+    oscillator.type = partial===1?'triangle':'sine';
+    oscillator.frequency.setValueAtTime(frequency*partial*.97,at);
+    oscillator.frequency.exponentialRampToValueAtTime(frequency*partial,at+.025);
+    const level=age<.012?.001*Math.pow(peak/.001,age/.012):peak*Math.pow(.001/peak,(age-.012)/(duration-.012));
     gain.gain.setValueAtTime(Math.max(.001,level),at);
-    if(age<.025) gain.gain.exponentialRampToValueAtTime(.09,at+.025-age);
-    gain.gain.exponentialRampToValueAtTime(.001,at+.55-age);
+    if(age<.012) gain.gain.exponentialRampToValueAtTime(peak,at+.012-age);
+    gain.gain.exponentialRampToValueAtTime(.001,at+duration-age);
     oscillator.connect(gain);
     gain.connect(output || context.destination);
     sources?.add(oscillator);
     oscillator.onended=()=>{sources?.delete(oscillator);oscillator.disconnect();gain.disconnect();};
-    oscillator.start(at);oscillator.stop(at+.56-age);
+    oscillator.start(at);oscillator.stop(at+duration+.01-age);
+    }
   }
+}
+function drumRoll(output=null,elapsed=0,duration=7.5,sources=null) {
+  if(!context || context.state!=='running' || !context.createBufferSource || elapsed>=duration) return null;
+  if(!snareBuffer) {
+    const rate=context.sampleRate || 48000;
+    snareBuffer=context.createBuffer(1,Math.floor(rate*.12),rate);
+    const data=snareBuffer.getChannelData(0);for(let i=0;i<data.length;i++)data[i]=Math.random()*2-1;
+  }
+  const gate=context.createGain(),active=new Set();
+  gate.gain.setValueAtTime(sound?1:0,context.currentTime);gate.connect(output || context.destination);rollGates.add(gate);
+  const release=()=>{rollGates.delete(gate);gate.disconnect();};
+  let hit=0;
+  for(let t=Math.max(0,elapsed);t<duration;t+=1/(9+17*Math.pow(t/duration,1.5))) {
+    const source=context.createBufferSource(),filter=context.createBiquadFilter(),gain=context.createGain();
+    const at=context.currentTime+t-elapsed+(output?1/24:0);
+    source.buffer=snareBuffer;filter.type='highpass';filter.frequency.setValueAtTime(1100,at);
+    const peak=(.035+.065*t/duration)*(hit++%2?.65:1);
+    gain.gain.setValueAtTime(.0001,at);gain.gain.linearRampToValueAtTime(peak,at+.003);gain.gain.exponentialRampToValueAtTime(.0001,at+.065);
+    source.connect(filter);filter.connect(gain);gain.connect(gate);active.add(source);sources?.add(source);
+    source.onended=()=>{active.delete(source);sources?.delete(source);source.disconnect();filter.disconnect();gain.disconnect();if(!active.size)release();};
+    source.start(at);source.stop(at+.075);
+  }
+  return {stop(){for(const source of active){try{source.stop();}catch{}}active.clear();release();}};
 }
 export function toggleSound() {
   sound = !sound;
   localStorage.setItem('roulette.sound',sound ? 'on' : 'off');
+  for(const gate of rollGates) gate.gain.setValueAtTime(sound?1:0,context.currentTime);
   initAudio();
   return sound;
 }
@@ -208,13 +240,18 @@ export function wheel(canvas,pointer,candidates,spin,clock,onFinish) {
       pointer.style.transform = '';
       if(!timing.finished) clickSound(true);
       timing.finished=true;
-      onFinish();
+      if(!timing.notified) {timing.notified=true;onFinish();}
     }
   }
   const active = spin && elapsed(performance.now())<spin.duration;
+  let roll=spin && liveRolls.get(spin.id);
+  if(active) {
+    if(roll) clearTimeout(roll.timer);
+    else {const audio=drumRoll(null,elapsed(performance.now())/1000,spin.duration/1000);if(audio){roll={audio};liveRolls.set(spin.id,roll);}}
+  }
   // Paint synchronously, so a new canvas is never blank for one animation frame.
   paint(spin?(active?spinPosition(spin,elapsed(performance.now()),reduced.matches).turns:spin.angle):0);
   if (active) frame = requestAnimationFrame(stepFrame);
-  else if(timing) timing.finished=true;
-  return () => cancelAnimationFrame(frame);
+  else if(timing) {timing.finished=true;if(!timing.notified){timing.notified=true;Promise.resolve().then(onFinish);}}
+  return () => {cancelAnimationFrame(frame);if(roll)roll.timer=setTimeout(()=>{roll.audio.stop();liveRolls.delete(spin.id);},0);};
 }
