@@ -555,6 +555,7 @@ async function revealPerson(slot,item) {
   const proposal=result.proposal || (result.proposalRevision===cached?.revision?cached:null);
   if(person && proposal && Number.isFinite(result.openedAt)) {
     person.proposal=proposal;person.openedAt=result.openedAt;
+    if(result.contentVersion) current.contentVersion=result.contentVersion;
     state.stamp='';render();
   } else await refreshState(true); // Compatibility with GAS v3 until it is updated.
 }
