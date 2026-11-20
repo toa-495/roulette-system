@@ -1,6 +1,6 @@
 import {api,configured,pollMs,passwordProof,setToken,token,uid} from './api.js';
 import {$,e,icon,yen,initials,hour,date,time,richView,safeUrl,photoButton,showPhoto,notify,modal,closeModal,bindForm,copyText,clearImages} from './ui.js';
-import {editProposal,editExpense,userForm,eventForm,registrations,passwordForm} from './forms.js?v=20261120-meeting9';
+import {editProposal,editExpense,userForm,eventForm,registrations,passwordForm} from './forms.js?v=20261121-planlock1';
 import {wheel,colorAt,toggleSound,initAudio,soundOn,revealSound} from './wheel.js?v=20261120-ui2';
 import {startRecording,recordingSupported} from './recording.js?v=20261120-ui2';
 import {nameCandidates,nameSpin} from './names.js?v=20261120-finale1';
@@ -21,6 +21,7 @@ let slotId = '';
 let clock = 0;
 let offline = false;
 let pending = false;
+let meetingDrawPending = false;
 let ticket = 0;
 let homeTicket = 0;
 let adminTicket = 0;
@@ -249,6 +250,7 @@ function renderLogin(activate = false) {
 }
 function render() {
   if (!user) return renderLogin();
+  closeLockedPlanEditor();
   stoppedWheel?.();
   clearTimeout(spinTimer);
   clearTimeout(revealTimer);
@@ -355,11 +357,13 @@ function wireMeeting() {
 async function meetingAction(action) {
   const m=state.meeting;if(!m || pending || recordingPending || activeSpin(m)) return;
   if(action==='meeting.spin' && m.spin && !confirm('集合場所と最初の予定を選び直します。全員の到着確認もリセットされます。よろしいですか？')) return;
-  const selected=eventId;pending=true;await initAudio();render();
+  const selected=eventId;pending=true;
+  if(action==='meeting.spin') meetingDrawPending=true;
+  await initAudio();render();
   try {
     const next=await api(action,{eventId:selected,previousMeetingId:m.spin?.id || '',meetingId:m.spin?.id || '',accessTokens:eventAccess()},{retry:true});
     if(selected===eventId && user) {++ticket;clock=next.clock ?? clock;state=next;if(slotId && !state.slots.find(s=>s.id===slotId)?.open)slotId='';}
-  } finally {pending=false;if(user)render();}
+  } finally {meetingDrawPending=false;pending=false;if(user)render();}
 }
 function renderOverview() {
   if(!state.overview?.available) return '<section class="panel empty"><h1>振り返り</h1><p>最後の時間枠のルーレットが終わると、今日の予定と全員の案を一覧で見られます。</p>'+(!state.overview?'<p>この機能を使うにはGASの更新が必要です。</p>':'')+'</section>';
@@ -423,14 +427,40 @@ async function runNameSpin() {
   await initAudio();config.spin=nameSpin(nameCandidates(state.members,config));render();
 }
 
+function firstPlanMeetingLocked(slot) {
+  return !!slot?.meetingFirst && (!!state?.meeting?.spin || meetingDrawPending);
+}
+function planEditable(slot) {
+  return !!slot?.editable && !firstPlanMeetingLocked(slot);
+}
+function planLockReason(slot) {
+  if(firstPlanMeetingLocked(slot)) return '集合場所の抽選開始後は、最初の予定を編集できません。';
+  return '予定の編集締切を過ぎています。';
+}
+function closeLockedPlanEditor() {
+  const form=$('edit-proposal');
+  if(!form || !$('modal')?.open || !state) return;
+  const slot=state.slots.find(item=>item.id===form.dataset.slotId);
+  if(slot && !planEditable(slot)) {
+    closeModal();
+    notify(planLockReason(slot),true);
+  }
+}
 function renderPlans() {
-  return '<div class="section-head"><h2>自分の予定</h2></div><div class="stack">'+state.slots.map(slot=>
-    '<article class="panel slot-card"><div class="slot-time">'+e(hour(slot.start)+'〜'+hour(slot.end))+'</div><div><h3>'+
-    e(slot.title || 'この時間の予定')+'</h3><span class="chip '+(!slot.editable?'locked':'')+'">'+
-    (!slot.editable?'編集締切':slot.mine?'登録済み':'未登録')+'</span>'+
-    (slot.mine?'<p><strong>'+e(slot.mine.title)+'</strong></p>':'')+(slot.editAt && slot.editable?'<p class="muted">締切 '+e(time(slot.editAt))+'</p>':'')+'</div>'+
-    '<button class="secondary" type="button" data-action="'+(slot.editable?'plan':'preview-plan')+'" data-key="'+e(slot.id)+'" '+(!slot.editable && !slot.mine?'disabled':'')+'>'+
-    (slot.editable?(slot.mine?'編集する':'登録する'):(slot.mine?'確認する':'締切済み'))+'</button></article>').join('')+'</div>';
+  return '<div class="section-head"><h2>自分の予定</h2></div><div class="stack">'+state.slots.map(slot=>{
+    const editable=planEditable(slot);
+    const meetingLocked=firstPlanMeetingLocked(slot);
+    const status=meetingLocked?(meetingDrawPending || activeSpin(state.meeting)?'集合場所抽選中・編集終了':'集合場所確定・編集終了'):
+      !editable?'編集締切':slot.mine?'登録済み':'未登録';
+    return '<article class="panel slot-card"><div class="slot-time">'+e(hour(slot.start)+'〜'+hour(slot.end))+'</div><div><h3>'+
+      e(slot.title || 'この時間の予定')+'</h3><span class="chip '+(!editable?'locked':'')+'">'+
+      (!editable?icon('lock',13):'')+e(status)+'</span>'+
+      (slot.mine?'<p><strong>'+e(slot.mine.title)+'</strong></p>':'')+
+      (meetingLocked?'<p class="muted plan-locked-note">集合場所の抽選が始まったため、編集できません。</p>':'')+
+      (slot.editAt && editable?'<p class="muted">締切 '+e(time(slot.editAt))+'</p>':'')+'</div>'+
+      '<button class="secondary" type="button" data-action="'+(editable?'plan':'preview-plan')+'" data-key="'+e(slot.id)+'" '+(!editable && !slot.mine?'disabled':'')+'>'+
+      (editable?(slot.mine?'編集する':'登録する'):(slot.mine?'内容を見る':'登録終了'))+'</button></article>';
+  }).join('')+'</div>';
 }
 function proposalContent(proposal,slot,includeTitle = true) {
   const places = proposal.locations.length ? '<p><strong>場所候補</strong></p><ul>'+proposal.locations.map(place=>'<li>'+e(place)+'</li>').join('')+'</ul>' : '';
@@ -811,7 +841,15 @@ async function doAction(button) {
     case 'meeting-spin': return meetingAction('meeting.spin');
     case 'meeting-arrive': return meetingAction('meeting.arrive');
     case 'history': return historyModal(slot);
-    case 'plan': return editProposal(eventId,slot,user,()=>refreshState(true));
+    case 'plan': {
+      if(!slot || !planEditable(slot)) {
+        notify(slot?planLockReason(slot):'時間枠を確認してください。',true);
+        render();
+        return;
+      }
+      return editProposal(eventId,slot,user,()=>refreshState(true),
+        ()=>planEditable(state?.slots.find(item=>item.id===slot.id)));
+    }
     case 'preview-plan': return modal('自分の予定',proposalContent(slot.mine,slot.id));
     case 'new-expense': return editExpense(state,null,user,()=>refreshState(true));
     case 'expense': return expenseDetail(expense);
