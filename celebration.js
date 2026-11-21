@@ -14,7 +14,7 @@ export function showWinner({heading,name,detail=''}) {
   const body=document.getElementById('winner-dialog-content');
   if(!node||!body)return;
   dismissWinner();
-  const sparks=Array.from({length:30},(_,i)=>'<span class="win-confetti" style="--i:'+i+';--delay:'+(i%6)+'"></span>').join('');
+  const sparks=Array.from({length:30},(_,i)=>{const angle=i*2.399,dist=120+(i%6)*23;return '<span class="win-confetti" style="--i:'+i+';--delay:'+(i%6)+';--dx:'+Math.round(Math.cos(angle)*dist)+'px;--dy:'+Math.round(Math.sin(angle)*dist)+'px"></span>';}).join('');
   body.innerHTML='<div class="win-confetti-area" aria-hidden="true">'+sparks+'</div>'+
     '<div class="win-symbol">'+icon('spark',38)+'</div>'+
     '<p class="win-heading">'+e(heading)+'</p>'+
