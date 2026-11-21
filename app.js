@@ -2,7 +2,7 @@ import {api,configured,pollMs,passwordProof,setToken,token,uid} from './api.js';
 import {$,e,icon,yen,initials,hour,date,time,richView,safeUrl,photoButton,showPhoto,notify,modal,closeModal,bindForm,copyText,clearImages} from './ui.js';
 import {editProposal,editExpense,userForm,eventForm,registrations,passwordForm} from './forms.js?v=20261121-planlock1';
 import {wheel,colorAt,toggleSound,initAudio,soundOn,revealSound} from './wheel.js?v=20261120-ui2';
-import {startRecording,recordingSupported} from './recording.js?v=20261120-ui2';
+import {startRecording,recordingSupported} from './recording.js?v=20261121-custom-victory1';
 import {nameCandidates,nameSpin} from './names.js?v=20261120-finale1';
 import {makeCustomState,resizeCustom,balanceCustom,customCandidates,percentSum} from './custom.js?v=20261121-custom1';
 import {showWinner,dismissWinner} from './celebration.js?v=20261121-victory1';
@@ -858,7 +858,7 @@ async function startAppRecording(context) {
       onStop:()=>{
         if(generation!==recordingGeneration) return;
         recordingSession=null;recordingPending=false;
-        if(user) {render();if(made) {showSavedVideo();if(stopReason) notify(stopReason);}}
+        if(user) {render();if(made) {dismissWinner();showSavedVideo();if(stopReason) notify(stopReason);}}
       }
     });
     if(generation!==recordingGeneration || !recordFrame(context)) {await controller.cancel();return;}
