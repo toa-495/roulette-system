@@ -253,3 +253,12 @@ textarea{resize:vertical;min-height:80px}
   .custom-chance input{width:67px!important}
   #winner-dialog{padding:24px 15px 20px}}
 @media(prefers-reduced-motion:reduce){#winner-dialog[open],.win-confetti{animation:none!important}}
+
+/* Supplemental proposal editing after cutoff: core stays readable and immutable. */
+.proposal-core-locked{display:grid;gap:10px;padding:16px;border:1px solid #e1d8bd;border-radius:13px;background:#faf7ed}
+.proposal-core-locked h3{margin:0;overflow-wrap:anywhere}
+.proposal-core-locked .rich-view{max-height:250px;overflow:auto;overflow-wrap:anywhere;padding:10px;background:#fffdf8;border:1px solid #ece8db;border-radius:9px}
+.proposal-core-locked .muted{margin:0}
+.proposal-supplement-note{background:#eef4ed;border:1px solid #d4e1d2;border-radius:10px;padding:12px 13px;margin-bottom:2px;line-height:1.55}
+#edit-proposal input[readonly]{background:#ecebe6;color:#666b67;cursor:not-allowed}
+#edit-proposal .label .chip{margin-left:5px}
