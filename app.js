@@ -654,15 +654,15 @@ function renderPlans() {
     const editable=planEditable(slot);
     const meetingLocked=firstPlanMeetingLocked(slot);
     const hasPlan=!!slot.mine;
-    const detailsEditable=!editable && hasPlan;
+    const detailsEditable=!editable && hasPlan && slot.supplementalEditable===true;
     const status=editable?(hasPlan?'登録済み':'未登録'):
-      (hasPlan?'タイトル・説明固定':'登録締切');
+      (hasPlan?(detailsEditable?'タイトル・説明固定':'編集締切'):'登録締切');
     const lockNote=meetingLocked
       ? '集合場所の抽選が始まったため、タイトル・説明と集合場所は固定です。場所の補足・URL・画像は編集できます。'
       : 'タイトルと説明は編集締切です。場所・URL・画像は引き続き編集できます。';
     const action=editable||detailsEditable?'plan':'preview-plan';
     const buttonText=editable?(hasPlan?'編集する':'登録する'):
-      hasPlan?'補足情報を編集':'登録終了';
+      hasPlan?(detailsEditable?'補足情報を編集':'内容を見る'):'登録終了';
     return '<article class="panel slot-card"><div class="slot-time">'+e(hour(slot.start)+'〜'+hour(slot.end))+'</div>'+
       '<div><h3>'+e(slot.title || 'この時間の予定')+'</h3><span class="chip '+(!editable?'locked':'')+'">'+
       (!editable?icon('lock',13):'')+e(status)+'</span>'+
@@ -1103,7 +1103,7 @@ async function doAction(button) {
     case 'meeting-arrive': return meetingAction('meeting.arrive');
     case 'history': return historyModal(slot);
     case 'plan': {
-      if(!slot || (!planEditable(slot) && !slot.mine)) {
+      if(!slot || (!planEditable(slot) && (!slot.mine || slot.supplementalEditable!==true))) {
         notify(slot?planLockReason(slot):'時間枠を確認してください。',true);
         render();
         return;
