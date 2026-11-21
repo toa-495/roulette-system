@@ -303,34 +303,87 @@ function render() {
   else clearRoomPreparation();
   setSync(offline);
 }
+function roundSettingsHtml(slot) {
+  const round=state.roundsEnabled && slot?.round;
+  if(!round) return '';
+  if(!round.canConfigure) {
+    return '<div class="round-settings round-fixed">'+icon('lock',15)+
+      '<span>勝負回数：<strong>'+round.target+'回</strong>（開始後は変更不可）</span></div>';
+  }
+  return '<div class="round-settings"><label class="round-settings-field">'+
+    '<span>勝負回数</span><input type="number" inputmode="numeric" min="1" max="10" step="1" value="'+round.target+
+    '" aria-label="勝負回数（1〜10回）" data-round-input></label><span class="round-unit">回（1〜10）</span>'+
+    '<button type="button" class="secondary" data-action="round-save" data-key="'+e(slot.id)+'" '+(pending?'disabled':'')+'>設定を保存</button>'+
+    (round.canLegacyExtend?'<p class="round-legacy">既に決まった結果を1回目として引き継げます。回数を増やす操作は一度だけ可能です。</p>':
+    '<p class="round-help">初期値1回。勝負を回すまでは変更できます。</p>')+'</div>';
+}
+function roundScoreHtml(round) {
+  if(!state.roundsEnabled || !round || !round.baseDrawId) return '';
+  const status=round.phase==='sudden'?'同率最多！サドンデスへ':
+    round.phase==='spinning'?'抽選中…':round.finished?'勝負が決まりました':
+    '第'+round.completedRegular+'回まで終了／残り'+round.remaining+'回';
+  const labels=(round.wins||[]).map(p=>'<li><span>'+e(p.name)+'</span><strong>'+p.count+'勝</strong></li>').join('');
+  return '<section class="round-score" aria-label="ルーレットの勝敗"><div class="round-score-head"><strong>'+
+    '勝敗：'+round.completedRegular+' / '+round.target+'回</strong><span class="chip">'+e(status)+'</span></div>'+
+    '<ul class="round-score-list">'+labels+'</ul>'+
+    (round.phase==='sudden'?'<p class="round-sudden">最多勝のメンバーだけで、決着の1回を回します。</p>':'')+
+    '</section>';
+}
+function roundSpinButtonLabel(round,hasSpin,meeting=false) {
+  if(!round) return hasSpin?(meeting?'集合場所を選び直す':'もう一度回す'):(meeting?'集合場所を決める':'ルーレットを回す');
+  if(round.phase==='sudden') return 'サドンデスを回す';
+  if(round.finished) return '勝負をやり直す';
+  if(round.phase==='continue') return '第'+(round.drawnRegular+1)+'回を回す';
+  if(round.phase==='spinning') return '抽選中…';
+  return meeting?'集合場所を決める':'第1回を回す';
+}
+
 function renderDay() {
-  return (state.missions?.enabled?missionTeaser():'')+(state.overview?.available?'<section class="panel overview-invite"><div><h2>今日の1日を並べて見よう</h2><p>採用された予定と、みんなが考えた1日の予定を一覧で見られます。</p></div><button class="primary" type="button" data-action="nav" data-key="overview">振り返りを見る</button></section>':'')+renderMeeting()+'<div class="section-head"><h2>当日の時間枠</h2><div class="spread"><span class="sync" id="sync-label"></span><button type="button" class="secondary" data-action="share">イベントURLをコピー</button></div></div>'+
+  return (state.missions?.enabled?missionTeaser():'')+
+    (state.overview?.available?'<section class="panel overview-invite"><div><h2>今日の1日を並べて見よう</h2><p>採用された予定と、みんなが考えた1日の予定を一覧で見られます。</p></div><button class="primary" type="button" data-action="nav" data-key="overview">振り返りを見る</button></section>':'')+
+    renderMeeting()+
+    '<div class="section-head"><h2>当日の時間枠</h2><div class="spread"><span class="sync" id="sync-label"></span><button type="button" class="secondary" data-action="share">イベントURLをコピー</button></div></div>'+
     '<div class="stack">'+state.slots.map(slot=>{
-      const spinning = activeSpin(slot);
-      const result = !spinning && slot.winner;
-      const status = slot.meetingFirst && !slot.open?'全員の到着待ち':!slot.open?'解禁 '+time(slot.openAt):spinning?'抽選中':result?'決定済み':slot.meetingFirst?'到着完了・予定は未開示':slot.winnerUnavailable?'再抽選できます':slot.registration+'件登録';
+      const spinning=activeSpin(slot);
+      const result=!spinning && (!state.roundsEnabled||slot.round?.finished) && slot.winner;
+      const round=state.roundsEnabled?slot.round:null;
+      const status=slot.meetingFirst && !slot.open?'全員の到着待ち':
+        !slot.open?'解禁 '+time(slot.openAt):spinning?'抽選中':
+        round?.phase==='sudden'?'サドンデス待ち':
+        round?.phase==='continue'?'途中経過 '+round.completedRegular+'/'+round.target+'回':
+        result?'決定済み':slot.meetingFirst?'到着完了・予定は未開示':
+        slot.winnerUnavailable?'再抽選できます':slot.registration+'件登録';
       return '<article class="panel slot-card"><div class="slot-time">'+e(hour(slot.start)+'〜'+hour(slot.end))+'</div>'+
         '<div><h3>'+e(slot.title || 'この時間の予定')+'</h3><span class="chip '+(!slot.open?'locked':'')+'">'+(!slot.open?icon('lock',13):'')+e(status)+'</span></div>'+
         '<button class="secondary" type="button" data-action="slot" data-key="'+e(slot.id)+'" '+(!slot.open?'disabled':'')+'>'+
         (!slot.open?'解禁前':result?'結果を見る':'開く')+icon('arrow',16)+'</button>'+
         (!slot.open && !slot.meetingFirst?'<button class="quiet slot-preview" type="button" data-action="unlock-slot" data-key="'+e(slot.id)+'">管理者パスワードで開く</button>':'')+
+        (!slot.meetingFirst?roundSettingsHtml(slot):'')+
         (result?'<details class="slot-winner"><summary><strong>'+e(result.title)+'</strong> <span class="muted">／ '+e(result.name)+'</span></summary><div>'+proposalContent(result,slot.id,false)+'</div></details>':'')+
         '</article>';
     }).join('')+'</div>';
 }
 function renderMeeting() {
   const m=state.meeting;if(!m) return '';
-  const spinning=!!activeSpin(m),done=!!m.spin && !spinning;
+  const spinning=!!activeSpin(m);
+  const done=(state.roundsEnabled?!!m.round?.finished:!!m.spin) && !spinning;
   const place=done?(m.place || ''):'';
-  const names=m.members.map(member=>'<li class="'+(member.arrived?'arrived':'')+'">'+e(member.name)+'　'+(m.spin?(member.arrived?'到着済み':'到着待ち'):(member.registered?'登録済み':'登録待ち'))+'</li>').join('');
+  const names=m.members.map(member=>'<li class="'+(member.arrived?'arrived':'')+'">'+e(member.name)+'　'+
+    (done?(member.arrived?'到着済み':'到着待ち'):(member.registered?'登録済み':'登録待ち'))+'</li>').join('');
+  const first=state.slots.find(slot=>slot.id===m.slotId);
+  const round=state.roundsEnabled?m.round:null;
+  const restart=!!round?.finished || (!round && !!m.spin);
   return '<section class="panel meeting-panel"><div class="spread"><h2>集合場所ルーレット</h2><span class="chip">'+m.registered+' / '+m.total+' 登録</span></div>'+
     '<p class="muted">全員の最初の予定がそろうと集合場所を決められます。</p>'+
+    roundSettingsHtml(first)+
     recordingControls('meeting')+
     '<div class="spread"><span></span><button class="icon-btn" data-action="sound" type="button" aria-pressed="'+soundOn()+'" aria-label="集合場所ルーレット音">'+icon(soundOn()?'speaker':'mute')+'</button></div>'+
     (m.ready || m.spin?'<div class="meeting-wheel"><canvas id="meeting-wheel" width="520" height="520" aria-label="集合場所のルーレット"></canvas><svg id="meeting-pointer" class="pointer" viewBox="0 0 30 47" aria-hidden="true"><path d="M3 3h24L15 43Z" fill="#d84d40" stroke="#792c33" stroke-width="2"/></svg></div>':'')+
+    roundScoreHtml(round)+
     (place?'<div class="first-plan-note"><strong>集合場所</strong><p>'+e(place)+'</p><p class="muted">最初の予定は、全員が到着してから開示します。</p></div>':'')+
     (spinning?'<p role="status">集合場所を抽選しています…</p>':'')+
-    '<div class="draw-actions"><button class="primary" type="button" data-action="meeting-spin" '+(!m.ready || spinning || pending || recordingPending?'disabled':'')+'>'+(m.spin?'集合場所を選び直す':'集合場所を決める')+'</button>'+
+    '<div class="draw-actions"><button class="primary" type="button" data-action="meeting-spin" data-restart="'+restart+'" '+
+      (!m.ready || spinning || pending || recordingPending?'disabled':'')+'>'+e(roundSpinButtonLabel(round,!!m.spin,true))+'</button>'+
     (done && !m.needsReroll?'<button class="'+(m.myArrived?'secondary':'primary')+'" type="button" data-action="meeting-arrive" '+(m.myArrived || pending?'disabled':'')+'>'+(m.myArrived?'到着を確認しました':'集合場所に着いた')+'</button>':'')+'</div>'+
     (m.needsReroll?'<p>選ばれた人が参加者から外れています。集合場所を選び直してください。</p>':'')+
     '<ul class="summary-list meeting-members">'+names+'</ul></section>';
@@ -338,7 +391,10 @@ function renderMeeting() {
 function meetingWheelPeople(m) {
   // Older GAS versions expose anonymous choice IDs; map them to member display names.
   const ordered=state.members.slice().sort((a,b)=>String(a.id).localeCompare(String(b.id)));
-  return (m.spin?.candidates || m.candidates).map(person=>{
+  const tieOnly=state.roundsEnabled && m.round?.phase==='sudden';
+  const source=tieOnly?m.candidates.filter(person=>m.round.tieUserIds.includes(person.realUserId))
+    .map((person,i)=>({...person,userId:'choice_'+i})):m.spin?.candidates || m.candidates;
+  return source.map(person=>{
     const match=/^choice_(\d+)$/.exec(String(person.userId));
     const fallback=match?ordered[Number(match[1])]?.name:'';
     const name=/^集合場所\s*\d+$/.test(person.name)?fallback || '参加者':person.name || fallback || '参加者';
@@ -349,19 +405,19 @@ function wireMeeting() {
   const m=state?.meeting;if(!m || !$('meeting-wheel')) return;
   // Only names are drawn, never the location text.
   const people=meetingWheelPeople(m);
-  stoppedWheel=wheel($('meeting-wheel'),$('meeting-pointer'),people,m.spin,clock,()=>{
+  stoppedWheel=wheel($('meeting-wheel'),$('meeting-pointer'),people,m.round?.phase==='sudden'?null:m.spin,clock,()=>{
     spinFinished(m.spin);
     void refreshState(true);
   });
 }
-async function meetingAction(action) {
+async function meetingAction(action,restart=false) {
   const m=state.meeting;if(!m || pending || recordingPending || activeSpin(m)) return;
-  if(action==='meeting.spin' && m.spin && !confirm('集合場所と最初の予定を選び直します。全員の到着確認もリセットされます。よろしいですか？')) return;
+  if(action==='meeting.spin' && restart && !confirm('勝負全体を最初からやり直します。集合場所と到着確認もリセットされます。よろしいですか？')) return;
   const selected=eventId;pending=true;
   if(action==='meeting.spin') meetingDrawPending=true;
   await initAudio();render();
   try {
-    const next=await api(action,{eventId:selected,previousMeetingId:m.spin?.id || '',meetingId:m.spin?.id || '',accessTokens:eventAccess()},{retry:true});
+    const next=await api(action,{eventId:selected,previousMeetingId:m.spin?.id || '',meetingId:m.spin?.id || '',restart:!!restart,accessTokens:eventAccess()},{retry:true});
     if(selected===eventId && user) {++ticket;clock=next.clock ?? clock;state=next;if(slotId && !state.slots.find(s=>s.id===slotId)?.open)slotId='';}
   } finally {meetingDrawPending=false;pending=false;if(user)render();}
 }
@@ -838,7 +894,7 @@ async function doAction(button) {
     }
     case 'reveal': await revealPerson(slot,key); return;
     case 'spin': return runSpin(slot);
-    case 'meeting-spin': return meetingAction('meeting.spin');
+    case 'meeting-spin': return meetingAction('meeting.spin',button.dataset.restart==='true');
     case 'meeting-arrive': return meetingAction('meeting.arrive');
     case 'history': return historyModal(slot);
     case 'plan': {
