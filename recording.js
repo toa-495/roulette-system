@@ -199,14 +199,19 @@ function painter(canvas) {
     ctx.font='800 32px system-ui,sans-serif';
     ctx.fillText('★',345,y+70);
     write(victory.label,x+34,y+151,width-68,25,'#805b24',800);
-    const size=48;
+    ctx.font='900 46px system-ui,sans-serif';
+    const initialLines=lines(ctx,victory.name,width-82);
+    const size=initialLines.length>2?36:46;
     ctx.font='900 '+size+'px system-ui,sans-serif';
     const nameLines=lines(ctx,victory.name,width-82).slice(0,3);
-    nameLines.forEach((line,i)=>write(line,x+42,y+198+i*55,width-84,size,'#233a44',900));
+    const lineHeight=size+9;
+    const nameTop=y+(nameLines.length===1?211:185);
+    nameLines.forEach((line,i)=>write(line,x+42,nameTop+i*lineHeight,width-84,size,'#233a44',900));
     if(victory.detail) {
-      ctx.font='700 24px system-ui,sans-serif';
+      ctx.font='700 23px system-ui,sans-serif';
+      const detailTop=Math.max(y+315,nameTop+nameLines.length*lineHeight+12);
       const detailLines=lines(ctx,victory.detail,width-82).slice(0,2);
-      detailLines.forEach((line,i)=>write(line,x+42,y+336+i*28,width-84,23,'#66512d',700));
+      detailLines.forEach((line,i)=>write(line,x+42,detailTop+i*28,width-84,23,'#66512d',700));
     }
     // Deterministic confetti stays visible for the video result hold.
     const colors=['#ee9781','#6b9a84','#e6bd47','#708fba','#b68ad0'];
