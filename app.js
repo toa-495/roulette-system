@@ -385,6 +385,8 @@ function renderMeeting() {
     (spinning?'<p role="status">集合場所を抽選しています…</p>':'')+
     '<div class="draw-actions"><button class="primary" type="button" data-action="meeting-spin" data-restart="'+restart+'" '+
       (!m.ready || spinning || pending || recordingPending?'disabled':'')+'>'+e(roundSpinButtonLabel(round,!!m.spin,true))+'</button>'+
+    (round && (round.phase==='continue'||round.phase==='sudden')?
+      '<button class="quiet" type="button" data-action="meeting-restart" '+(spinning||pending?'disabled':'')+'>勝数をリセットして最初から</button>':'')+
     (done && !m.needsReroll?'<button class="'+(m.myArrived?'secondary':'primary')+'" type="button" data-action="meeting-arrive" '+(m.myArrived || pending?'disabled':'')+'>'+(m.myArrived?'到着を確認しました':'集合場所に着いた')+'</button>':'')+'</div>'+
     (m.needsReroll?'<p>選ばれた人が参加者から外れています。集合場所を選び直してください。</p>':'')+
     '<ul class="summary-list meeting-members">'+names+'</ul></section>';
@@ -590,6 +592,8 @@ function renderRoom(slot) {
     '<svg id="pointer" class="pointer" viewBox="0 0 30 47" aria-hidden="true"><path d="M3 3h24L15 43Z" fill="#d84d40" stroke="#792c33" stroke-width="2"/><path d="M8 7h14L15 30Z" fill="#f67d63"/></svg></div>'+
     '<div class="draw-actions">'+(slot.meetingFirst?'':'<button class="primary" id="spin" type="button" data-action="spin" data-restart="'+(round?round.finished:!!slot.spin)+'" '+(!ready || spinning || pending?'disabled':'')+'>'+
     icon('bolt',17)+e(roundSpinButtonLabel(round,!!slot.spin))+'</button>'+
+    (round && (round.phase==='continue'||round.phase==='sudden')?
+      '<button class="quiet" type="button" data-action="round-restart" '+(spinning||pending?'disabled':'')+'>勝数をリセットして最初から</button>':'')+
     (hint?'<p class="muted">'+e(hint)+'</p>':'')+
     (slot.spin?'<button class="quiet" type="button" data-action="history" '+(spinning || roomRevealing.size?'disabled':'')+'>抽選履歴</button>':''))+'</div>'+
     (candidates.length?'<ul class="candidates" aria-label="抽選候補">'+candidates.map((item,i)=>
@@ -815,9 +819,9 @@ async function revealPerson(slot,item) {
     throw error;
   }
 }
-async function runSpin(slot) {
+async function runSpin(slot,forceRestart=false) {
   if(slot.meetingFirst || pending || activeSpin(slot) || roomRevealing.size || savingReveals(slot)) return;
-  const restart=slot.round?slot.round.finished:!!slot.spin;
+  const restart=forceRestart || (slot.round?slot.round.finished:!!slot.spin);
   if(restart && !confirm('この勝負全体を最初からやり直します。途中の勝数もリセットします。よろしいですか？'))return;
   initAudio();
   pending=true;
@@ -927,6 +931,8 @@ async function doAction(button) {
     case 'spin': return runSpin(slot);
     case 'round-save': return saveRoundSetting(button,key);
     case 'meeting-spin': return meetingAction('meeting.spin',button.dataset.restart==='true');
+    case 'meeting-restart': return meetingAction('meeting.spin',true);
+    case 'round-restart': return runSpin(slot,true);
     case 'meeting-arrive': return meetingAction('meeting.arrive');
     case 'history': return historyModal(slot);
     case 'plan': {
