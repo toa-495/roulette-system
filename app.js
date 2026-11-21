@@ -379,7 +379,7 @@ function roundSettingsHtml(slot) {
     '<span>勝負回数</span><input type="number" inputmode="numeric" min="1" max="10" step="1" value="'+round.target+
     '" aria-label="勝負回数（1〜10回）" data-round-input></label><span class="round-unit">回（1〜10）</span>'+
     '<button type="button" class="secondary" data-action="round-save" data-key="'+e(slot.id)+'" '+(pending?'disabled':'')+'>設定を保存</button>'+
-    (round.canLegacyExtend?'<p class="round-legacy"></p>':
+    (round.canLegacyExtend?'':
     '<p class="round-help">初期値1回。勝負を回すまでは変更できます。</p>')+'</div>';
 }
 function roundScoreHtml(round) {
