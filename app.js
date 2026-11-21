@@ -4,6 +4,8 @@ import {editProposal,editExpense,userForm,eventForm,registrations,passwordForm} 
 import {wheel,colorAt,toggleSound,initAudio,soundOn,revealSound} from './wheel.js?v=20261120-ui2';
 import {startRecording,recordingSupported} from './recording.js?v=20261120-ui2';
 import {nameCandidates,nameSpin} from './names.js?v=20261120-finale1';
+import {makeCustomState,resizeCustom,balanceCustom,customCandidates,percentSum} from './custom.js?v=20261121-custom1';
+import {showWinner,dismissWinner} from './celebration.js?v=20261121-victory1';
 import {missionTeaser,missionOpen,missionClaim,missionToggle,hideMission,missionRecapHtml,missionLoadRecap,missionRecapReset} from './missions.js?v=20261121-midnight2';
 
 const main = $('main');
@@ -26,6 +28,10 @@ let ticket = 0;
 let homeTicket = 0;
 let adminTicket = 0;
 let stoppedWheel;
+let stoppedCustomWheel;
+const customRoulette=makeCustomState();
+const celebrationArmed=new Set();
+const celebrationShown=new Set();
 let spinTimer;
 let revealTimer;
 let lastSlot = '';
@@ -89,7 +95,60 @@ function eventAccess(selectedEvent = eventId) {
   return Object.fromEntries(Array.from(slotGrants.values()).filter(grant=>grant.eventId===selectedEvent && grant.expiresAt>now()).map(grant=>[grant.slotId,grant.accessToken]));
 }
 function activeSpin(slot) { return slot.spin && !completedSpins.has(slot.spin.id) && now() < slot.spin.startAt+slot.spin.duration; }
-function spinFinished(spin) {if(spin){completedSpins.add(spin.id);if(completedSpins.size>100)completedSpins.delete(completedSpins.values().next().value);}render();if(spin)void refreshState(true);}
+function watchedSpinCelebration(spin){
+  if(!spin || !celebrationArmed.has(spin.id) || celebrationShown.has(spin.id) || !state || view!=='day')return;
+  const m=state.meeting;
+  let heading='',name='',detail='';
+  if(!slotId && m?.spin?.id===spin.id){
+    if(activeSpin(m))return;
+    const final=!state.roundsEnabled || m.round?.finished;
+    if(final && !m.place)return; // Await the server result; never expose a location early.
+    const finalId=final?(m.round?.winnerId || spin.winnerId):spin.winnerId;
+    const people=meetingWheelPeople(m);
+    name=people.find(p=>p.userId===finalId)?.name ||
+      m.members.find(p=>p.userId===finalId || p.id===finalId)?.name ||
+      m.round?.wins?.find(p=>p.userId===finalId)?.name || '';
+    heading=final?'集合場所が決定！':(m.round?.phase==='sudden'?'サドンデスへ！':'第'+(m.round?.completedRegular||1)+'回の当選');
+    detail=final?m.place:'次の回の勝負へ';
+  }else{
+    const slot=state.slots.find(p=>p.id===slotId && p.spin?.id===spin.id);
+    if(!slot || activeSpin(slot))return;
+    const final=!state.roundsEnabled || slot.round?.finished;
+    const chosen=final?(slot.adoptedUserId || slot.round?.winnerId || spin.winnerId):spin.winnerId;
+    const person=slot.people.find(p=>p.userId===chosen);
+    name=person?.name || spin.candidates?.find(p=>p.userId===chosen)?.name || '';
+    heading=final?'採用する予定が決定！':(slot.round?.phase==='sudden'?'サドンデスへ！':'第'+(slot.round?.completedRegular||1)+'回の当選');
+    detail=final?(slot.winner?.title || person?.proposal?.title || ''):'次の回の勝負へ';
+  }
+  if(!name)return;
+  celebrationShown.add(spin.id);celebrationArmed.delete(spin.id);
+  if(celebrationShown.size>120)celebrationShown.delete(celebrationShown.values().next().value);
+  showWinner({heading,name,detail});
+}
+function watchForCompletedSpin(){
+  if(!state || view!=='day')return;
+  const source=slotId?state.slots.find(p=>p.id===slotId):state.meeting;
+  const spin=source?.spin;
+  if(!spin)return;
+  if(activeSpin(source))celebrationArmed.add(spin.id);
+  else watchedSpinCelebration(spin);
+}
+function spinFinished(spin){
+  if(spin){
+    completedSpins.add(spin.id);
+    if(completedSpins.size>100)completedSpins.delete(completedSpins.values().next().value);
+  }
+  render();
+  if(spin)void refreshState(true);
+}
+function localSpinFinished(config,category){
+  const spin=config.spin;
+  if(!spin || celebrationShown.has(spin.id))return;
+  completedSpins.add(spin.id);celebrationShown.add(spin.id);
+  render();
+  const selected=spin.candidates.find(p=>p.userId===spin.winnerId);
+  if(view==='names' && selected)showWinner({heading:category==='name'?'今回選ばれたのは':'ルーレットの結果',name:selected.name});
+}
 function navButtons() {
   const items = [['day','当日','calendar'],['plans','予定登録','pen'],['money','お金','wallet'],['names','ルーレット','users'],['overview','振り返り','spark']];
   if (user.role === 'admin') items.push(['admin','管理','settings']);
@@ -113,6 +172,8 @@ function clearAuth(message) {
   slotGrants.clear();
   localReveals.clear();completedSpins.clear();
   nameSettings.clear();overviewCache=null;
+  dismissWinner();celebrationArmed.clear();celebrationShown.clear();
+  const reset=makeCustomState();customRoulette.entries=reset.entries;customRoulette.spin=null;
   clearRoomPreparation();
   clearTimeout(revealTimer);
   recordingGeneration++;
@@ -208,6 +269,7 @@ async function refreshEverything() {
 }
 function renderLogin(activate = false) {
   stoppedWheel?.();
+  stoppedCustomWheel?.();
   clearTimeout(spinTimer);
   clearTimeout(revealTimer);
   $('top-actions').innerHTML = '';
@@ -252,6 +314,7 @@ function render() {
   if (!user) return renderLogin();
   closeLockedPlanEditor();
   stoppedWheel?.();
+  stoppedCustomWheel?.();
   clearTimeout(spinTimer);
   clearTimeout(revealTimer);
   $('top-actions').innerHTML = (savedVideo?'<button type="button" class="secondary" data-action="saved-video">動画を保存</button>':'')+
@@ -272,6 +335,7 @@ function render() {
     const selectedId=event.target.value;
     // Changing events also ends any recording before the next canvas appears.
     await finishRecording();
+    dismissWinner();celebrationArmed.clear();
     hideMission(true);missionRecapReset();
     eventId = selectedId;
     slotId = '';
@@ -289,7 +353,7 @@ function render() {
   else if (view==='plans') page.innerHTML = renderPlans();
   else if (view==='money') page.innerHTML = renderMoney();
   else if (view==='overview') {page.innerHTML=renderOverview();void loadOverview();if(state.missions?.enabled&&state.overview?.available)void missionLoadRecap(eventId,state.overview.finalDrawId,()=>{if(user&&view==='overview')render();});}
-  else if (view==='names') {page.innerHTML=renderNames();wireNames();}
+  else if (view==='names') {page.innerHTML=renderNames();wireNames();wireCustom();}
   else if (shownSlot) {
     page.innerHTML = renderRoom(shownSlot);
     wireRoom(shownSlot);
@@ -299,6 +363,7 @@ function render() {
     const nextEnd = Math.min(...state.slots.filter(activeSpin).map(slot=>slot.spin.startAt+slot.spin.duration));
     if (Number.isFinite(nextEnd)) spinTimer = setTimeout(render,Math.max(40,nextEnd-now()+25));
   }
+  watchForCompletedSpin();
   if(shownSlot) void prepareRoom(shownSlot);
   else clearRoomPreparation();
   setSync(offline);
@@ -892,6 +957,7 @@ async function doAction(button) {
   if(['nav','back','slot','unlock-slot','logout'].includes(action)) {hideMission(true);await finishRecording();}
   switch (action) {
     case 'nav':
+      dismissWinner();
       if (key==='admin' && user.role!=='admin') return;
       if(key==='overview' && !state?.overview?.available)return;
       view = key;
@@ -907,9 +973,12 @@ async function doAction(button) {
     case 'mission-toggle': return missionToggle(eventId,user.id,key,button.dataset.completed==='true');
     case 'mission-hide': hideMission();return;
     case 'mission-recap-retry': missionRecapReset();render();return;
+    case 'winner-close': dismissWinner();return;
     case 'name-spin': return runNameSpin();
-    case 'back': slotId = ''; render(); return;
-    case 'slot': if (slot?.open) { slotId = slot.id; initAudio(); render(); } return;
+    case 'custom-spin': return runCustomSpin();
+    case 'custom-equal': balanceCustom(customRoulette);render();return;
+    case 'back': dismissWinner();slotId = ''; render(); return;
+    case 'slot': if (slot?.open) { dismissWinner();slotId = slot.id; initAudio(); render(); } return;
     case 'unlock-slot': if(slot && !slot.open) unlockSlot(slot); return;
     case 'start-recording': return startRoomRecording(slot);
     case 'start-meeting-recording': return startMeetingRecording();
@@ -983,6 +1052,7 @@ document.addEventListener('click',async event=>{
 $('brand').onclick=async()=>{
   if (!user) return renderLogin();
   await finishRecording();
+  dismissWinner();
   hideMission(true);
   view = 'day';
   slotId = '';
