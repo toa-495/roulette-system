@@ -805,13 +805,22 @@ function recordFrame(context) {
     const m=state.meeting,spinning=!!activeSpin(m);
     // Show participant names on the wheel; disclose only the winning meeting place after it stops.
     const candidates=meetingWheelPeople(m);
-    const revealedPlace=!spinning && m.place ? m.place : '';
+    const revealedPlace=!spinning && (!state.roundsEnabled || m.round?.finished) && m.place ? m.place : '';
+    const winningId=m.round?.winnerId || m.spin?.winnerId || '';
+    const matching=candidates.find(p=>p.userId===winningId || p.realUserId===winningId) ||
+      m.members.find(p=>p.userId===winningId || p.id===winningId) ||
+      m.round?.wins?.find(p=>p.userId===winningId);
     const people=candidates.map(person=>({userId:person.userId,name:person.name,
-      proposal:revealedPlace && person.userId===(m.round?.winnerId || m.spin?.winnerId)?{title:revealedPlace,rich:'',locations:[],links:[]}:null}));
+      proposal:revealedPlace && (person.userId===winningId || person.realUserId===winningId)?
+        {title:revealedPlace,rich:'',locations:[],links:[]}:null}));
     const spin=m.spin?Object.fromEntries(['id','startAt','duration','turns','angle','winnerId','number'].map(key=>[key,m.spin[key]])):null;
     if(spin) spin.candidates=candidates;
+    const finalWinner=spin && revealedPlace?{
+      userId:winningId,name:matching?.name || '参加者',
+      proposal:{title:revealedPlace,rich:'',locations:[],links:[]}
+    }:null;
     return {kind:'meeting-place',eventTitle:state.event.title,slotTitle:'集合場所ルーレット',people,spin,spinning,
-      serverNow:now(),winner:spin && revealedPlace?people.find(person=>person.userId===(m.round?.winnerId || spin.winnerId)) || null:null,
+      serverNow:now(),winner:finalWinner,
       revealProgress:Object.fromEntries(people.map(person=>[person.userId,1]))};
   }
   if(slotId!==context.slotId) return null;
