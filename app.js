@@ -1,6 +1,6 @@
 import {api,configured,pollMs,passwordProof,setToken,token,uid} from './api.js';
 import {$,e,icon,yen,initials,hour,date,time,richView,safeUrl,photoButton,showPhoto,notify,modal,closeModal,bindForm,copyText,clearImages} from './ui.js';
-import {editProposal,editExpense,userForm,eventForm,registrations,passwordForm} from './forms.js?v=20261121-planlock1';
+import {editProposal,editExpense,userForm,eventForm,registrations,passwordForm} from './forms.js?v=20261121-supplement1';
 import {wheel,colorAt,toggleSound,initAudio,soundOn,revealSound} from './wheel.js?v=20261120-ui2';
 import {startRecording,recordingSupported} from './recording.js?v=20261121-custom-victory1';
 import {nameCandidates,nameSpin} from './names.js?v=20261120-finale1';
@@ -635,14 +635,16 @@ function planEditable(slot) {
   return !!slot?.editable && !firstPlanMeetingLocked(slot);
 }
 function planLockReason(slot) {
-  if(firstPlanMeetingLocked(slot)) return '集合場所の抽選開始後は、最初の予定を編集できません。';
-  return '予定の編集締切を過ぎています。';
+  if(firstPlanMeetingLocked(slot)) return '集合場所の抽選開始後は、タイトルと説明が固定されます。場所の補足・URL・画像は編集できます。';
+  return 'タイトルと説明の編集期限を過ぎました。登録済みの予定なら補足情報を編集できます。';
 }
 function closeLockedPlanEditor() {
   const form=$('edit-proposal');
   if(!form || !$('modal')?.open || !state) return;
   const slot=state.slots.find(item=>item.id===form.dataset.slotId);
-  if(slot && !planEditable(slot)) {
+  // Keep an existing supplemental editor open while the state is being polled;
+  // close only the full editor that could otherwise overwrite locked core fields.
+  if(slot && !planEditable(slot) && form.dataset.mode!=='supplemental') {
     closeModal();
     notify(planLockReason(slot),true);
   }
@@ -651,16 +653,24 @@ function renderPlans() {
   return '<div class="section-head"><h2>自分の予定</h2></div><div class="stack">'+state.slots.map(slot=>{
     const editable=planEditable(slot);
     const meetingLocked=firstPlanMeetingLocked(slot);
-    const status=meetingLocked?(meetingDrawPending || activeSpin(state.meeting)?'集合場所抽選中・編集終了':'集合場所確定・編集終了'):
-      !editable?'編集締切':slot.mine?'登録済み':'未登録';
-    return '<article class="panel slot-card"><div class="slot-time">'+e(hour(slot.start)+'〜'+hour(slot.end))+'</div><div><h3>'+
-      e(slot.title || 'この時間の予定')+'</h3><span class="chip '+(!editable?'locked':'')+'">'+
+    const hasPlan=!!slot.mine;
+    const detailsEditable=!editable && hasPlan;
+    const status=editable?(hasPlan?'登録済み':'未登録'):
+      (hasPlan?'タイトル・説明固定':'登録締切');
+    const lockNote=meetingLocked
+      ? '集合場所の抽選が始まったため、タイトル・説明と集合場所は固定です。場所の補足・URL・画像は編集できます。'
+      : 'タイトルと説明は編集締切です。場所・URL・画像は引き続き編集できます。';
+    const action=editable||detailsEditable?'plan':'preview-plan';
+    const buttonText=editable?(hasPlan?'編集する':'登録する'):
+      hasPlan?'補足情報を編集':'登録終了';
+    return '<article class="panel slot-card"><div class="slot-time">'+e(hour(slot.start)+'〜'+hour(slot.end))+'</div>'+
+      '<div><h3>'+e(slot.title || 'この時間の予定')+'</h3><span class="chip '+(!editable?'locked':'')+'">'+
       (!editable?icon('lock',13):'')+e(status)+'</span>'+
-      (slot.mine?'<p><strong>'+e(slot.mine.title)+'</strong></p>':'')+
-      (meetingLocked?'<p class="muted plan-locked-note">集合場所の抽選が始まったため、編集できません。</p>':'')+
-      (slot.editAt && editable?'<p class="muted">締切 '+e(time(slot.editAt))+'</p>':'')+'</div>'+
-      '<button class="secondary" type="button" data-action="'+(editable?'plan':'preview-plan')+'" data-key="'+e(slot.id)+'" '+(!editable && !slot.mine?'disabled':'')+'>'+
-      (editable?(slot.mine?'編集する':'登録する'):(slot.mine?'内容を見る':'登録終了'))+'</button></article>';
+      (hasPlan?'<p><strong>'+e(slot.mine.title)+'</strong></p>':'')+
+      (detailsEditable?'<p class="muted plan-locked-note">'+e(lockNote)+'</p>':'')+
+      (slot.editAt && editable?'<p class="muted">本文の締切 '+e(time(slot.editAt))+'</p>':'')+'</div>'+
+      '<button class="secondary" type="button" data-action="'+action+'" data-key="'+e(slot.id)+'" '+(!editable && !hasPlan?'disabled':'')+'>'+
+      e(buttonText)+'</button></article>';
   }).join('')+'</div>';
 }
 function proposalContent(proposal,slot,includeTitle = true) {
@@ -1093,12 +1103,14 @@ async function doAction(button) {
     case 'meeting-arrive': return meetingAction('meeting.arrive');
     case 'history': return historyModal(slot);
     case 'plan': {
-      if(!slot || !planEditable(slot)) {
+      if(!slot || (!planEditable(slot) && !slot.mine)) {
         notify(slot?planLockReason(slot):'時間枠を確認してください。',true);
         render();
         return;
       }
-      return editProposal(eventId,slot,user,()=>refreshState(true),
+      const updatedSlot={...slot,meetingLocationLocked:
+        slot.meetingLocationLocked ?? (!!slot.meetingFirst && !!state?.meeting?.spin)};
+      return editProposal(eventId,updatedSlot,user,()=>refreshState(true),
         ()=>planEditable(state?.slots.find(item=>item.id===slot.id)));
     }
     case 'preview-plan': return modal('自分の予定',proposalContent(slot.mine,slot.id));
