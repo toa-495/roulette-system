@@ -530,11 +530,11 @@ function renderNames() {
   return '<div class="section-head"><h1>ルーレット</h1><button class="icon-btn" data-action="sound" type="button" aria-pressed="'+soundOn()+'" aria-label="名前ルーレット音">'+icon(soundOn()?'speaker':'mute')+'</button></div><p class="muted">このイベントの参加者から選びます。結果はこの端末だけに表示し、予定の抽選には影響しません。</p><div class="two-col"><section class="panel"><h2>参加者と当たりやすさ</h2><label class="name-equal"><input id="name-equal" type="checkbox" '+(config.equal?'checked':'')+' '+(busy?'disabled':'')+'> 等倍（選んだ全員を同じ確率にする）</label><p class="muted">倍率は比率です。例：1倍と2倍なら、2倍の人が2倍当たりやすくなります。0倍は当たりません。</p><div class="name-choices">'+state.members.map(member=>{
     const choice=config.people.get(member.id),candidate=candidates.find(p=>p.userId===member.id);
     return '<div class="name-choice"><label><input type="checkbox" data-name-select="'+e(member.id)+'" '+(choice.selected?'checked':'')+' '+(busy?'disabled':'')+'> '+e(member.name)+'</label><label class="name-weight"><input type="number" data-name-weight="'+e(member.id)+'" aria-label="'+e(member.name)+'の倍率" min="0" max="1000" step="0.001" value="'+e(config.equal?'1':choice.weight)+'" '+(busy || config.equal || !choice.selected?'disabled':'')+'> 倍</label><output data-name-odds="'+e(member.id)+'">'+(total && candidate?(candidate.weight/total*100).toFixed(1):'0.0')+'%</output></div>';
-  }).join('')+'</div><p class="form-error" id="name-error" role="alert">'+e(error || '')+'</p></section><section class="panel draw-panel"><h2>誰になるかな？</h2><div class="wheel-wrap"><canvas id="name-wheel" width="520" height="520" aria-label="名前ルーレットの円盤"></canvas><svg id="name-pointer" class="pointer" viewBox="0 0 30 47" aria-hidden="true"><path d="M3 3h24L15 43Z" fill="#d84d40" stroke="#792c33" stroke-width="2"/></svg></div><div id="name-result" role="status">'+(busy?'<p>ルーレットが回っています…</p>':winner?'<div class="first-plan-note"><span>今回選ばれたのは</span><h2>'+e(winner.name)+'</h2></div>':'')+'</div><button class="primary" data-action="name-spin" id="name-spin" '+(busy || !total || error?'disabled':'')+'>'+(busy?'抽選中':'ルーレットを回す')+'</button></section></div>';
+  }).join('')+'</div><p class="form-error" id="name-error" role="alert">'+e(error || '')+'</p></section><section class="panel draw-panel"><h2>誰になるかな？</h2><div class="wheel-wrap"><canvas id="name-wheel" width="520" height="520" aria-label="名前ルーレットの円盤"></canvas><svg id="name-pointer" class="pointer" viewBox="0 0 30 47" aria-hidden="true"><path d="M3 3h24L15 43Z" fill="#d84d40" stroke="#792c33" stroke-width="2"/></svg></div><div id="name-result" role="status">'+(busy?'<p>ルーレットが回っています…</p>':winner?'<div class="first-plan-note"><span>今回選ばれたのは</span><h2>'+e(winner.name)+'</h2></div>':'')+'</div><button class="primary" data-action="name-spin" id="name-spin" '+(busy || !total || error?'disabled':'')+'>'+(busy?'抽選中':'ルーレットを回す')+'</button></section></div>'+renderCustom();
 }
 function wireNames() {
   const config=namesConfig(),data=namesData(config),busy=!!activeSpin(config);
-  if($('name-wheel'))stoppedWheel=wheel($('name-wheel'),$('name-pointer'),config.spin?.candidates || data.candidates,config.spin,0,()=>spinFinished(config.spin));
+  if($('name-wheel'))stoppedWheel=wheel($('name-wheel'),$('name-pointer'),config.spin?.candidates || data.candidates,config.spin,0,()=>localSpinFinished(config,'name'));
   if($('name-equal'))$('name-equal').onchange=event=>{config.equal=event.target.checked;config.spin=null;render();};
   for(const node of main.querySelectorAll('[data-name-select]'))node.onchange=event=>{config.people.get(node.dataset.nameSelect).selected=event.target.checked;config.spin=null;render();};
   for(const node of main.querySelectorAll('[data-name-weight]'))node.oninput=()=>{
@@ -547,8 +547,85 @@ function wireNames() {
   };
 }
 async function runNameSpin() {
-  const config=namesConfig();if(activeSpin(config))return;
+  const config=namesConfig();if(activeSpin(config)||activeSpin(customRoulette))return;
   await initAudio();config.spin=nameSpin(nameCandidates(state.members,config));render();
+}
+
+
+function customData(){
+  try{
+    const candidates=customCandidates(customRoulette);
+    return {candidates,total:100,error:''};
+  }catch(error){return {candidates:[],total:percentSum(customRoulette),error:error.message};}
+}
+function renderCustom(){
+  const busy=!!activeSpin(customRoulette),config=customRoulette;
+  const {candidates,total,error}=customData();
+  const winner=!busy && config.spin?.candidates.find(p=>p.userId===config.spin.winnerId);
+  return '<div class="section-head custom-heading"><div><h2>自由ルーレット</h2><p class="muted">好きな項目と確率で、何でも抽選。その場限り・保存なし。</p></div></div>'+
+    '<div class="two-col custom-layout"><section class="panel"><div class="spread"><h3>項目と当選確率</h3>'+
+    '<button class="secondary" type="button" data-action="custom-equal" '+(busy?'disabled':'')+'>均等にする</button></div>'+
+    '<label class="custom-count-label">項目数 <input id="custom-count" type="number" min="2" max="30" step="1" inputmode="numeric" value="'+config.entries.length+'" '+(busy?'disabled':'')+' aria-label="項目数（2〜30）"></label>'+
+    '<p class="muted">2〜30項目を設定できます。確率は合計100％にしてください。0％は抽選から外れます。</p>'+
+    '<div class="custom-rows">'+config.entries.map((item,i)=>
+      '<div class="custom-row"><span class="custom-index">'+(i+1)+'</span>'+
+      '<label class="custom-name"><span class="visually-hidden">項目'+(i+1)+'の名前</span>'+
+      '<input type="text" data-custom-name="'+i+'" value="'+e(item.label)+'" maxlength="60" placeholder="項目名" '+(busy?'disabled':'')+'></label>'+
+      '<label class="custom-chance"><input type="number" data-custom-percent="'+i+'" min="0" max="100" step="0.01" inputmode="decimal" value="'+e(item.percent)+'" aria-label="'+(i+1)+'番目の項目の確率" '+(busy?'disabled':'')+'><span>％</span></label></div>').join('')+
+    '</div><div class="custom-total">合計：<strong id="custom-total">'+Number(total).toFixed(2)+'％</strong></div>'+
+    '<p class="form-error" id="custom-error" role="alert">'+e(error)+'</p></section>'+
+    '<section class="panel draw-panel"><h3>何が当たるかな？</h3>'+
+    '<div class="wheel-wrap"><canvas id="custom-wheel" width="520" height="520" aria-label="自由ルーレットの円盤"></canvas>'+
+    '<svg id="custom-pointer" class="pointer" viewBox="0 0 30 47" aria-hidden="true">'+
+    '<path d="M3 3h24L15 43Z" fill="#d84d40" stroke="#792c33" stroke-width="2"/></svg></div>'+
+    '<div id="custom-result" role="status">'+(busy?'<p>ルーレットが回っています…</p>':
+      winner?'<div class="first-plan-note"><span>今回選ばれたのは</span><h2>'+e(winner.name)+'</h2></div>':'')+'</div>'+
+    '<button class="primary custom-spin-btn" type="button" data-action="custom-spin" id="custom-spin" '+(busy || error || !candidates.length?'disabled':'')+'>'+
+    (busy?'抽選中…':'ルーレットを回す')+'</button></section></div>';
+}
+function updateCustomPreview(){
+  const {candidates,total,error}=customData();
+  const sum=$('custom-total'),err=$('custom-error'),button=$('custom-spin');
+  if(sum)sum.textContent=Number(total).toFixed(2)+'％';
+  if(err)err.textContent=error || '';
+  if(button)button.disabled=!!error || !candidates.length;
+  if($('custom-result'))$('custom-result').innerHTML='';
+  stoppedCustomWheel?.();
+  const canvas=$('custom-wheel'),pointer=$('custom-pointer');
+  if(canvas && pointer)stoppedCustomWheel=wheel(canvas,pointer,candidates,null,0,()=>{});
+}
+function wireCustom(){
+  const config=customRoulette,data=customData();
+  const canvas=$('custom-wheel'),pointer=$('custom-pointer');
+  if(canvas && pointer){
+    stoppedCustomWheel=wheel(canvas,pointer,config.spin?.candidates || data.candidates,config.spin,0,
+      ()=>localSpinFinished(config,'custom'));
+  }
+  const count=$('custom-count');
+  if(count)count.onchange=()=>{
+    const raw=count.value.trim();
+    if(!/^(?:[2-9]|[12]\d|30)$/.test(raw)){notify('項目数は2〜30の整数で指定してください。',true);count.value=String(config.entries.length);return;}
+    resizeCustom(config,Number(raw));render();
+  };
+  for(const input of main.querySelectorAll('[data-custom-name]'))input.oninput=()=>{
+    if(activeSpin(config))return;
+    const item=config.entries[Number(input.dataset.customName)];
+    if(!item)return;
+    item.label=input.value;config.spin=null;updateCustomPreview();
+  };
+  for(const input of main.querySelectorAll('[data-custom-percent]'))input.oninput=()=>{
+    if(activeSpin(config))return;
+    const item=config.entries[Number(input.dataset.customPercent)];
+    if(!item)return;
+    item.percent=input.value;config.spin=null;updateCustomPreview();
+  };
+}
+async function runCustomSpin(){
+  if(activeSpin(customRoulette)||activeSpin(namesConfig()))return;
+  const candidates=customCandidates(customRoulette);
+  await initAudio();
+  customRoulette.spin=nameSpin(candidates);
+  render();
 }
 
 function firstPlanMeetingLocked(slot) {
