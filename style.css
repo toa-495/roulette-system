@@ -186,3 +186,24 @@ textarea{resize:vertical;min-height:80px}
 /* First-slot editing is locked as soon as the meeting draw begins. */
 .plan-locked-note{margin-top:7px!important;line-height:1.5}
 .slot-card .chip.locked{display:inline-flex;align-items:center;gap:5px}
+
+/* Multi-round vote UI: free integer 1–10, independent for each time slot */
+.round-settings{display:flex;align-items:center;flex-wrap:wrap;gap:9px 12px;padding:12px;margin:12px 0;
+  border:1px solid #d8ddcf;background:#f6f7f1;border-radius:13px;min-width:0}
+.slot-card>.round-settings{grid-column:1/-1;margin:1px 0 0}
+.round-settings-field{display:flex;align-items:center;gap:9px;font-size:14px;font-weight:750}
+.round-settings-field input{max-width:77px!important;width:77px!important;min-height:42px!important;text-align:center;
+  font-size:18px;font-variant-numeric:tabular-nums;font-weight:800;padding:6px!important}
+.round-unit{font-size:13px;color:var(--soft)}
+.round-settings>button{min-height:42px}
+.round-legacy,.round-help{margin:0!important;flex-basis:100%;font-size:12px;line-height:1.5;color:var(--soft)}
+.round-legacy{color:#80552c;font-weight:650}
+.round-fixed{font-size:13px;color:#4c5a50;margin:8px 0}
+.round-score{border:1px solid #cddbc7;background:#fafcf5;padding:14px;border-radius:13px;margin:13px 0}
+.round-score-head{display:flex;justify-content:space-between;align-items:center;gap:9px;flex-wrap:wrap}
+.round-score-list{list-style:none;margin:11px 0 0;padding:0;display:grid;gap:7px}
+.round-score-list li{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:7px 10px;border-radius:8px;background:#f0f3e9}
+.round-score-list strong{font-variant-numeric:tabular-nums}
+.round-sudden{font-weight:750;color:#895437;font-size:14px;margin:11px 0 0!important}
+@media(max-width:560px){.round-settings{gap:9px}.round-settings>button{flex:1;min-width:110px}
+  .round-score-head .chip{font-size:11px}}
