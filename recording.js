@@ -44,7 +44,7 @@ export function recordingTimeline(first,reduceMotion = false) {
     if(frame.spin) {
       if(currentSpin?.id!==frame.spin.id) {
         const elapsed=Number.isFinite(frame.serverNow)?frame.serverNow-frame.spin.startAt:(frame.spinning?0:frame.spin.duration);
-        currentSpin={id:frame.spin.id,at,elapsed,lastTick:-1,lastSound:-Infinity,finished:elapsed>=frame.spin.duration};
+        currentSpin={id:frame.spin.id,at,elapsed,lastTick:-1,lastSound:-Infinity,finished:elapsed>=frame.spin.duration,startedLive:elapsed<frame.spin.duration};
         if(elapsed<frame.spin.duration) cues.push({kind:'roll',elapsed:elapsed/1000,duration:frame.spin.duration/1000});
       }
       pose=spinPosition(frame.spin,currentSpin.elapsed+at-currentSpin.at,reduceMotion);
@@ -55,11 +55,21 @@ export function recordingTimeline(first,reduceMotion = false) {
       currentSpin.lastTick=tick;
       if(pose.progress===1 && !currentSpin.finished) {cues.push({kind:'finish'});currentSpin.finished=true;}
     }
-    const winner=frame.spin && pose.progress===1?frame.people.find(person=>person.userId===frame.spin.winnerId && person.proposal) || frame.winner:null;
+    // A vote's last spin winner is not necessarily the overall winner in multi-round mode.
+    const winner=frame.spin && pose.progress===1 ? frame.winner : null;
+    const sinceFinish=frame.spin && currentSpin ? currentSpin.elapsed+at-currentSpin.at-frame.spin.duration : -1;
+    const showVictory=!!frame.spin && !!currentSpin?.startedLive && pose.progress===1 &&
+      sinceFinish>=0 && sinceFinish<3500;
+    const drawn=showVictory?frame.spin.candidates.find(person=>person.userId===frame.spin.winnerId):null;
+    const celebration=showVictory && (winner||drawn)?{
+      label:winner?(frame.kind==='meeting-place'?'集合場所が決定！':'採用する予定が決定！'):'今回の当選',
+      name:winner?.name||drawn?.name||'',
+      detail:winner?.proposal?.title||''
+    }:null;
     const candidates=frame.kind==='meeting-place'
       ? (frame.spin?.candidates || frame.people.map(person=>({userId:person.userId,name:person.name,title:''})))
       : frame.spin?frame.spin.candidates:frame.people.map(person=>({userId:person.userId,name:person.name,title:person.proposal?.title || '未開示'}));
-    return {...frame,winner,spinning:!!frame.spin && pose.progress<1,revealProgress:progress,turns:pose.turns,cues,
+    return {...frame,winner,celebration,spinning:!!frame.spin && pose.progress<1,revealProgress:progress,turns:pose.turns,cues,
       wheelCandidates:candidates.map(person=>({...person,title:progress[person.userId]===undefined || progress[person.userId]>=1?person.title:frame.people.find(item=>item.userId===person.userId)?.proposal?'開示中…':'未開示'}))};
   };
 }
@@ -173,11 +183,46 @@ function painter(canvas) {
       wrapped.slice(0,2).forEach((line,j)=>write(line+(j===1 && wrapped.length>2?'…':''),x+23,y+j*27,274,21,ink,600));
     });
   }
+  function victoryOverlay(frame){
+    const victory=frame.celebration;
+    if(!victory)return;
+    // Render into the exported video canvas, independently of the browser's
+    // foreground dialog: no screen capture, microphone or UI controls are recorded.
+    ctx.save();
+    ctx.fillStyle='rgba(9,23,35,.79)';
+    ctx.fillRect(0,0,720,1280);
+    const width=642,x=39,y=405,height=405;
+    box(x,y,width,height,34,'#fff8da','#f3d37c');
+    ctx.fillStyle='#e9bb53';
+    ctx.beginPath();ctx.arc(360,y+90,39,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#5d4928';
+    ctx.font='800 32px system-ui,sans-serif';
+    ctx.fillText('★',345,y+70);
+    write(victory.label,x+34,y+151,width-68,25,'#805b24',800);
+    const size=48;
+    ctx.font='900 '+size+'px system-ui,sans-serif';
+    const nameLines=lines(ctx,victory.name,width-82).slice(0,3);
+    nameLines.forEach((line,i)=>write(line,x+42,y+198+i*55,width-84,size,'#233a44',900));
+    if(victory.detail) {
+      ctx.font='700 24px system-ui,sans-serif';
+      const detailLines=lines(ctx,victory.detail,width-82).slice(0,2);
+      detailLines.forEach((line,i)=>write(line,x+42,y+336+i*28,width-84,23,'#66512d',700));
+    }
+    // Deterministic confetti stays visible for the video result hold.
+    const colors=['#ee9781','#6b9a84','#e6bd47','#708fba','#b68ad0'];
+    for(let i=0;i<35;i++){
+      const a=i*2.399,rr=110+(i%7)*39,px=360+Math.cos(a)*rr,py=y+195+Math.sin(a)*rr;
+      if(px<10||px>710||py<20||py>1250)continue;
+      ctx.fillStyle=colors[i%colors.length];ctx.save();ctx.translate(px,py);ctx.rotate(a);
+      ctx.fillRect(-5,-8,10,16);ctx.restore();
+    }
+    ctx.restore();
+  }
   return (frame,at)=>{
     ctx.fillStyle=paper;ctx.fillRect(0,0,720,1280);ctx.textBaseline='top';
     write(frame.eventTitle,32,24,656,30,ink,800);write(frame.slotTitle,32,68,656,22,soft,400);
     if(frame.kind==='meeting-place') {
-      meeting(frame,at);write('1日ルーレット',32,1234,656,20,soft,400);return;
+      meeting(frame,at);write('1日ルーレット',32,1234,656,20,soft,400);victoryOverlay(frame);return;
     }
     let top=112;
     // Match the normal room: a separate result card, everyone's cards, then the wheel.
@@ -226,6 +271,7 @@ function painter(canvas) {
     if(frame.spinning || frame.winner) write(frame.spinning?'抽選中…':'決定！',532,wheelY+29,140,22,'#334734',700);
     drawDisk(frame,wheelY+62,wheelSize);
     write('1日ルーレット',32,1234,656,20,soft,400);
+    victoryOverlay(frame);
   };
 }
 
