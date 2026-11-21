@@ -326,6 +326,7 @@ function roundScoreHtml(round) {
   return '<section class="round-score" aria-label="ルーレットの勝敗"><div class="round-score-head"><strong>'+
     '勝敗：'+round.completedRegular+' / '+round.target+'回</strong><span class="chip">'+e(status)+'</span></div>'+
     '<ul class="round-score-list">'+labels+'</ul>'+
+    (round.finished?'<p class="round-winner">'+icon('spark',15)+' 最終勝者：'+e((round.wins||[]).find(p=>p.userId===round.winnerId)?.name||'参加者')+'</p>':'')+
     (round.phase==='sudden'?'<p class="round-sudden">最多勝のメンバーだけで、決着の1回を回します。</p>':'')+
     '</section>';
 }
@@ -561,7 +562,8 @@ function renderRoom(slot) {
   const ready = slot.people.length>0 && revealed.length===slot.people.length && !roomRevealing.size && !savingReveals(slot);
   const round=state.roundsEnabled?slot.round:null;
   const sudden=round?.phase==='sudden';
-  const candidates=spinning?slot.spin.candidates:(sudden?revealed.filter(person=>round.tieUserIds.includes(person.userId)):revealed);
+  const finishedSudden=!!slot.spin && slot.spin.roundType==='sudden' && round?.finished;
+  const candidates=(spinning || finishedSudden)?slot.spin.candidates:(sudden?revealed.filter(person=>round.tieUserIds.includes(person.userId)):revealed);
   const hint = spinning?'ルーレットが回っています…':savingReveals(slot)?'開示を保存しています…':!slot.people.length?'登録された予定がまだありません。':roomRevealing.size?'予定を開示しています…':!ready?'全員の予定を開示すると回せます。':'';
   const win = !spinning && (!round || round.finished) && slot.winner;
   const personRows = slot.people.map(item=>{
@@ -598,12 +600,13 @@ function wireRoom(slot) {
   const candidates = candidatesFor(slot);
   const spinning = activeSpin(slot);
   const sudden=state.roundsEnabled && slot.round?.phase==='sudden';
+  const finishedSudden=!!slot.spin && slot.spin.roundType==='sudden' && slot.round?.finished;
   const unchanged = !sudden && slot.spin && JSON.stringify(candidates)===JSON.stringify(slot.spin.candidates);
   // Canvas text cannot share the DOM blur animation. Keep its title hidden until the same reveal ends.
-  const displayCandidates = (slot.meetingFirst?slot.spin.candidates.map(item=>({...item,title:slot.people.find(p=>p.userId===item.userId)?.proposal?.title || '未開示'})):spinning?slot.spin.candidates:slot.people.filter(item=>!sudden || slot.round.tieUserIds.includes(item.userId)).map(item=>({userId:item.userId,name:item.name,title:item.proposal?.title || '未開示'}))).map(item=>
+  const displayCandidates = (slot.meetingFirst?slot.spin.candidates.map(item=>({...item,title:slot.people.find(p=>p.userId===item.userId)?.proposal?.title || '未開示'})):(spinning||finishedSudden)?slot.spin.candidates:slot.people.filter(item=>!sudden || slot.round.tieUserIds.includes(item.userId)).map(item=>({userId:item.userId,name:item.name,title:item.proposal?.title || '未開示'}))).map(item=>
     roomRevealing.has(item.userId)?{...item,title:'開示中…'}:item);
   stoppedWheel = wheel($('wheel'),$('pointer'),displayCandidates,
-    sudden?null:(spinning || unchanged || slot.meetingFirst ? slot.spin : null),clock,()=>spinFinished(slot.spin));
+    sudden?null:(spinning || finishedSudden || unchanged || slot.meetingFirst ? slot.spin : null),clock,()=>spinFinished(slot.spin));
   for (const details of main.querySelectorAll('details[data-open-person]')) {
     details.ontoggle = () => {
       if (!details.isConnected) return;
