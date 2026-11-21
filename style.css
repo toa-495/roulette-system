@@ -248,7 +248,7 @@ textarea{resize:vertical;min-height:80px}
   animation:win-confetti 1.65s ease-out calc(var(--delay)*65ms) both}
 @keyframes win-arrive{from{opacity:0;transform:translateY(45px) scale(.65)}to{opacity:1;transform:translateY(0) scale(1)}}
 @keyframes win-confetti{0%{opacity:0;transform:translate(-50%,-50%) rotate(0) scale(.6)}
-  12%{opacity:1}100%{opacity:0;transform:translate(calc(-50% + cos(var(--angle))*190px),calc(-50% + sin(var(--angle))*210px)) rotate(770deg)}}
+  12%{opacity:1}100%{opacity:0;transform:translate(calc(-50% + var(--dx)),calc(-50% + var(--dy))) rotate(770deg)}}
 @media(max-width:560px){.custom-row{grid-template-columns:22px minmax(0,1fr) 99px;gap:6px}
   .custom-chance input{width:67px!important}
   #winner-dialog{padding:24px 15px 20px}}
