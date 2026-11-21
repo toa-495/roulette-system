@@ -207,3 +207,49 @@ textarea{resize:vertical;min-height:80px}
 .round-sudden{font-weight:750;color:#895437;font-size:14px;margin:11px 0 0!important}
 @media(max-width:560px){.round-settings{gap:9px}.round-settings>button{flex:1;min-width:110px}
   .round-score-head .chip{font-size:11px}}
+
+/* One-off custom weighted roulette */
+.custom-heading{margin-top:34px;padding-top:22px;border-top:2px solid var(--line)}
+.custom-heading p{margin:5px 0 0}
+.custom-layout{margin-bottom:18px}
+.custom-count-label{display:flex;align-items:center;gap:13px;margin:13px 0;font-weight:750}
+.custom-count-label input{max-width:85px!important;width:85px!important;text-align:center;font-size:18px;font-weight:800}
+.custom-rows{display:grid;gap:0;max-height:560px;overflow:auto;margin:12px 0 4px}
+.custom-row{display:grid;grid-template-columns:32px minmax(0,1fr) 110px;gap:9px;align-items:center;
+  padding:8px 0;border-bottom:1px solid var(--line)}
+.custom-index{font-weight:800;font-variant-numeric:tabular-nums;color:var(--soft);text-align:center}
+.custom-row .custom-name input{width:100%}
+.custom-chance{display:flex;align-items:center;gap:5px}
+.custom-chance input{min-width:0!important;width:76px!important;text-align:right;font-variant-numeric:tabular-nums}
+.custom-chance span{font-size:13px;font-weight:800;color:var(--soft)}
+.custom-total{display:flex;justify-content:flex-end;gap:9px;font-size:15px;padding:9px 0}
+.custom-total strong{font-variant-numeric:tabular-nums}
+.custom-spin-btn{display:flex;margin:9px auto 0;min-width:200px}
+.visually-hidden{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+/* Separate top-layer dialog, not part of the recording source canvas. */
+#winner-dialog{width:min(510px,calc(100vw - 24px));max-height:90dvh;overflow:hidden;isolation:isolate;
+  text-align:center;color:#332923;padding:28px 22px 24px;border:2px solid #e5c77d;border-radius:28px;
+  background:radial-gradient(circle at 50% 0,#fff7d8 0,#fffef5 48%,#fffbee 100%);
+  box-shadow:0 22px 80px #090e23a8}
+#winner-dialog::backdrop{background:#07192ac9;backdrop-filter:blur(5px)}
+#winner-dialog[open]{animation:win-arrive .55s cubic-bezier(.2,1.55,.36,1) both}
+#winner-dialog-content{position:relative;z-index:2;min-height:235px}
+.win-symbol{position:relative;display:grid;place-items:center;width:74px;height:74px;margin:0 auto 14px;border-radius:50%;
+  background:#ffdb6c;color:#533c25;box-shadow:0 7px 0 #d6ae49,0 0 0 8px #fff1b9}
+.win-heading{position:relative;font-size:15px;letter-spacing:.1em;font-weight:850;margin:18px 0 5px;color:#6c522e}
+.win-name{position:relative;font-size:clamp(32px,8.4vw,62px);line-height:1.18;font-weight:900;overflow-wrap:anywhere;
+  margin:14px 0;color:#243a41;text-shadow:1px 2px 0 #e6dbbe}
+.win-detail{position:relative;font-size:clamp(16px,4vw,22px);font-weight:780;overflow-wrap:anywhere;line-height:1.5;margin:10px 0 22px}
+.win-dismiss{position:relative;width:min(100%,280px);margin:18px auto 0}
+.win-confetti-area{position:absolute;inset:-26px;pointer-events:none;z-index:-1;overflow:hidden}
+.win-confetti{--angle:calc(var(--i)*137deg);position:absolute;left:50%;top:35%;width:9px;height:16px;
+  background:hsl(calc(var(--i)*37deg) 76% 63%);border-radius:2px;
+  animation:win-confetti 1.65s ease-out calc(var(--delay)*65ms) both}
+@keyframes win-arrive{from{opacity:0;transform:translateY(45px) scale(.65)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes win-confetti{0%{opacity:0;transform:translate(-50%,-50%) rotate(0) scale(.6)}
+  12%{opacity:1}100%{opacity:0;transform:translate(calc(-50% + cos(var(--angle))*190px),calc(-50% + sin(var(--angle))*210px)) rotate(770deg)}}
+@media(max-width:560px){.custom-row{grid-template-columns:22px minmax(0,1fr) 99px;gap:6px}
+  .custom-chance input{width:67px!important}
+  #winner-dialog{padding:24px 15px 20px}}
+@media(prefers-reduced-motion:reduce){#winner-dialog[open],.win-confetti{animation:none!important}}
