@@ -147,35 +147,65 @@ function bindPhoto(existing, request) {
 }
 
 export function editProposal(eventId,slot,user,done,canEdit=()=>!!slot.editable) {
-  const data = slot.mine;
+  const data=slot.mine;
   const first=slot.meetingFirst;
+  const coreLocked=!canEdit();
+  const meetingLocked=first && !!slot.meetingLocationLocked;
+  if(coreLocked && !data)throw new Error('編集締切後は新しく予定を登録できません。');
   const meetingHint='集合場所に使います。\n最寄駅集合の場合は、〇駅\nのようにご記入ください。最寄り駅でなくても大丈夫です。\n駅から遠い場合は、目的地が分からないように場所を示してください。';
-  modal(data ? '自分の予定を編集' : '自分の予定を登録',
-    '<p class="muted">'+e(hour(slot.start)+'〜'+hour(slot.end))+'</p><form id="edit-proposal" data-slot-id="'+e(slot.id)+'">'+
-    field('タイトル',input('title',data?.title,'required maxlength="100"'),required)+
-    '<div class="fields"><span id="editor-label" class="label">説明'+required+'</span><div class="editor-frame">'+toolbar()+
-    '<div id="editor" class="editor" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="editor-label" aria-required="true">'+richView(data?.rich)+'</div></div>'+
-    '<div><button id="preview-rich" class="secondary" type="button">書式をプレビュー</button></div><div id="rich-preview" class="rich-view panel" hidden></div></div>'+
-    (first?'<div class="fields"><span class="label">集合場所'+required+' <span class="info-help"><button type="button" class="info-mark" aria-label="集合場所の書き方" aria-describedby="meeting-help">ⓘ</button><span class="info-tooltip" id="meeting-help" role="tooltip">'+e(meetingHint)+'</span></span></span>'+input('locations',data?.locations?.[0] || '', 'required maxlength="180" aria-label="集合場所" aria-describedby="meeting-help" placeholder="例：〇駅の改札前"')+'</div>':
-      field('場所候補（1行につき1件）',textArea('locations',data?.locations.join('\n'),'rows="2"'),optional))+
-    field('参考URL（1行につき1件）',textArea('links',data?.links.join('\n'),'rows="2"'),optional)+photoField('参考画像')+submit()+'</form>');
-  bindEditor();
-  const getPhoto = bindPhoto(data?.image,{eventId,slotId:slot.id,userId:user.id,kind:'proposal',key:data?.image});
-  const request = uid();
-  bindForm('edit-proposal', async form => {
-    if(!canEdit()) throw new Error('編集締切のため、この予定は保存できません。');
-    const f = new FormData(form);
-    if (!($('editor').textContent || '').replace(/[\s\u200b-\u200d\ufeff]/gu,'')) throw new Error('説明を入力してください。');
-    if(first && !String(f.get('locations') || '').trim()) throw new Error('集合場所を入力してください。');
-    if(!canEdit()) throw new Error('集合場所の抽選が始まったため、最初の予定は保存できません。');
-    await api('proposal.save',{eventId,slotId:slot.id,revision:data?.revision || 0,title:f.get('title'),rich:$('editor').innerHTML,
-      locations:lines(f.get('locations')),links:lines(f.get('links')),photo:await getPhoto()},{requestId:request,retry:true});
+  const coreForm=coreLocked
+    ? '<section class="proposal-core-locked"><div class="spread"><h3>確定した予定</h3><span class="chip locked">'+icon('lock',14)+' タイトル・説明は固定</span></div>'+
+      '<h3>'+e(data.title)+'</h3><div class="rich-view">'+richView(data.rich)+'</div>'+
+      '<p class="muted">締切を過ぎたため、この2項目は変更できません。</p></section>'
+    : field('タイトル',input('title',data?.title,'required maxlength="100"'),required)+
+      '<div class="fields"><span id="editor-label" class="label">説明'+required+'</span><div class="editor-frame">'+toolbar()+
+      '<div id="editor" class="editor" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="editor-label" aria-required="true">'+richView(data?.rich)+'</div></div>'+
+      '<div><button id="preview-rich" class="secondary" type="button">書式をプレビュー</button></div><div id="rich-preview" class="rich-view panel" hidden></div></div>';
+  const firstLocation=first
+    ? '<div class="fields"><span class="label">集合場所'+required+
+      ' <span class="info-help"><button type="button" class="info-mark" aria-label="集合場所の書き方" aria-describedby="meeting-help">ⓘ</button>'+
+      '<span class="info-tooltip" id="meeting-help" role="tooltip">'+e(meetingHint)+'</span></span></span>'+
+      input('meetingPlace',data?.locations?.[0] || '',(meetingLocked?'readonly aria-readonly="true" ':'required ')+
+        'maxlength="180" aria-label="集合場所" aria-describedby="meeting-help" placeholder="例：〇駅の改札前"')+
+      (meetingLocked?'<p class="muted">抽選開始後のため、この集合場所は固定されています。</p>':'')+'</div>'+
+      field('補足の場所（1行につき1件）',textArea('extraLocations',data?.locations?.slice(1).join('\n'),'rows="2"'),optional)
+    : field('場所候補（1行につき1件）',textArea('locations',data?.locations?.join('\n') || '','rows="2"'),optional);
+  modal(coreLocked?'補足情報を編集':(data?'自分の予定を編集':'自分の予定を登録'),
+    '<p class="muted">'+e(hour(slot.start)+'〜'+hour(slot.end))+'</p>'+
+    (coreLocked?'<p class="proposal-supplement-note">場所・参考URL・参考画像は、予定の締切後でも更新できます。</p>':'')+
+    '<form id="edit-proposal" data-slot-id="'+e(slot.id)+'" data-mode="'+(coreLocked?'supplemental':'core')+'">'+
+    coreForm+firstLocation+
+    field('参考URL（1行につき1件）',textArea('links',data?.links?.join('\n') || '','rows="2"'),optional)+
+    photoField('参考画像')+submit()+'</form>');
+  if(!coreLocked)bindEditor();
+  const getPhoto=bindPhoto(data?.image,{eventId,slotId:slot.id,userId:user.id,kind:'proposal',key:data?.image});
+  const request=uid();
+  bindForm('edit-proposal',async form=>{
+    // While the full editor is open, an external draw or deadline may lock the
+    // main proposal. Do not silently downgrade, which could drop draft text.
+    if(!coreLocked && !canEdit())throw new Error('タイトルと説明が締切になりました。閉じて補足情報の編集画面を開いてください。');
+    const values=new FormData(form);
+    if(!coreLocked && !($('editor').textContent||'').replace(/[\s\u200b-\u200d\ufeff]/gu,''))throw new Error('説明を入力してください。');
+    const locationValues=first
+      ? [String(values.get('meetingPlace') || '').trim(),...lines(values.get('extraLocations'))].filter(Boolean)
+      : lines(values.get('locations'));
+    if(first && !locationValues[0])throw new Error('集合場所を入力してください。');
+    if(meetingLocked && locationValues[0]!==data?.locations?.[0])throw new Error('確定済みの集合場所は変更できません。');
+    const payload={
+      eventId,slotId:slot.id,revision:data?.revision || 0,
+      locations:locationValues,links:lines(values.get('links')),photo:await getPhoto()
+    };
+    if(!coreLocked){
+      if(!canEdit())throw new Error('編集中に締切になりました。補足情報の編集画面を開き直してください。');
+      payload.title=values.get('title');
+      payload.rich=$('editor').innerHTML;
+    }else payload.supplementalOnly=true;
+    await api('proposal.save',payload,{requestId:request,retry:true});
     closeModal();
-    notify('予定を保存しました。');
+    notify(coreLocked?'補足情報を保存しました。':'予定を保存しました。');
     await done();
   });
 }
-
 export function editExpense(state, current, user, done) {
   const {event,members,slots,summary} = state;
   const oldIds = current ? [current.payerId,...Object.keys(current.shares)] : [];
