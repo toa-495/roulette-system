@@ -877,7 +877,7 @@ async function saveRoundSetting(button,slotKey) {
   pending=true;button.disabled=true;
   try{
     const next=await api('rounds.configure',{eventId:selected,slotId:slot.id,count,
-      previousSpinId:(slot.meetingFirst?state.meeting?.spin?.id:slot.spin?.id)||''},{retry:true});
+      previousSpinId:slot.round?.lastSpinId || (slot.meetingFirst?state.meeting?.spin?.id:slot.spin?.id) || ''},{retry:true});
     if(selected===eventId&&user){++ticket;clock=next.clock??clock;state=next;render();notify('勝負回数を保存しました。');}
   }finally{pending=false;if(selected===eventId&&user)render();}
 }
