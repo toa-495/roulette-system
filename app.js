@@ -878,7 +878,9 @@ async function saveRoundSetting(button,slotKey) {
   try{
     const next=await api('rounds.configure',{eventId:selected,slotId:slot.id,count,
       previousSpinId:slot.round?.lastSpinId || (slot.meetingFirst?state.meeting?.spin?.id:slot.spin?.id) || ''},{retry:true});
-    if(selected===eventId&&user){++ticket;clock=next.clock??clock;state=next;render();notify('勝負回数を保存しました。');}
+    if(selected===eventId&&user){++ticket;clock=next.clock??clock;state=next;
+      if(slotId && !state.slots.find(item=>item.id===slotId)?.open)slotId='';
+      render();notify('勝負回数を保存しました。');}
   }finally{pending=false;if(selected===eventId&&user)render();}
 }
 
