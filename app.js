@@ -167,7 +167,7 @@ async function refreshState(force = false) {
       for(const slot of next.slots || []) if(slot.open) for(const person of slot.people) {
         const local=localReveals.get(localRevealKey(slot,person.userId));
         if(local?.pending && !person.proposal) {person.proposal=local.proposal;person.openedAt=local.openedAt;}
-        if(local?.pending && slot.spin?.winnerId===person.userId && person.proposal) slot.winner={name:person.name,...person.proposal};
+        if(local?.pending && (slot.round?slot.round.finished && slot.adoptedUserId===person.userId:slot.spin?.winnerId===person.userId) && person.proposal) slot.winner={name:person.name,...person.proposal};
       }
       state = next;
       if (!state.slots.some(slot => slot.id===slotId && slot.open)) slotId = '';
@@ -658,7 +658,7 @@ function recordFrame(context) {
     const candidates=meetingWheelPeople(m);
     const revealedPlace=!spinning && m.place ? m.place : '';
     const people=candidates.map(person=>({userId:person.userId,name:person.name,
-      proposal:revealedPlace && person.userId===m.spin?.winnerId?{title:revealedPlace,rich:'',locations:[],links:[]}:null}));
+      proposal:revealedPlace && person.userId===(m.round?.winnerId || m.spin?.winnerId)?{title:revealedPlace,rich:'',locations:[],links:[]}:null}));
     const spin=m.spin?Object.fromEntries(['id','startAt','duration','turns','angle','winnerId','number'].map(key=>[key,m.spin[key]])):null;
     if(spin) spin.candidates=candidates;
     return {kind:'meeting-place',eventTitle:state.event.title,slotTitle:'集合場所ルーレット',people,spin,spinning,
@@ -788,7 +788,7 @@ async function revealPerson(slot,item) {
   if(localReveals.get(key)?.pending) return;
   const local=cached && prior?{openedAt:now(),proposal:cached,pending:true,prior:{...prior}}:null;
   if(local) {localReveals.set(key,local);prior.proposal=cached;prior.openedAt=local.openedAt;
-    if(slot.spin?.winnerId===item) slot.winner={name:prior.name,...cached};render();}
+    if(slot.round?slot.round.finished && slot.adoptedUserId===item:slot.spin?.winnerId===item) slot.winner={name:prior.name,...cached};render();}
   ++ticket;
   try {
   const result=await api('reveal.open',{eventId:selectedEvent,slotId:slot.id,userId:item,
@@ -801,13 +801,13 @@ async function revealPerson(slot,item) {
   if(local) local.pending=false;
   if(person && proposal && Number.isFinite(result.openedAt)) {
     person.proposal=proposal;person.openedAt=result.openedAt;
-    if(current.spin?.winnerId===item) current.winner={name:person.name,...proposal};
+    if(current.round?current.round.finished && current.adoptedUserId===item:current.spin?.winnerId===item) current.winner={name:person.name,...proposal};
     if(result.contentVersion) current.contentVersion=result.contentVersion;
     state.stamp='';render();
   } else await refreshState(true); // Compatibility with GAS v3 until it is updated.
   } catch(error) {
     if(local) {local.pending=false;const person=state?.slots.find(s=>s.id===slot.id)?.people.find(p=>p.userId===item);
-      if(person?.openedAt===local.openedAt) {Object.assign(person,local.prior);const current=state.slots.find(s=>s.id===slot.id);if(current.spin?.winnerId===item)current.winner=person.proposal?{name:person.name,...person.proposal}:null;}}
+      if(person?.openedAt===local.openedAt) {Object.assign(person,local.prior);const current=state.slots.find(s=>s.id===slot.id);if(current.round?current.round.finished && current.adoptedUserId===item:current.spin?.winnerId===item)current.winner=person.proposal?{name:person.name,...person.proposal}:null;}}
     if(eventId===selectedEvent && user?.id===viewer) {render();await refreshState(true);}
     throw error;
   }
